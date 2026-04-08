@@ -10,6 +10,7 @@ const config = {
   width: 1280,
   height: 720,
   backgroundColor: '#1a0f05',
+  parent: 'game-container',
   scene: [BootScene, MenuScene, WorldScene, BattleScene, UIScene],
   physics: {
     default: 'arcade',
@@ -18,6 +19,9 @@ const config = {
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    parent: 'game-container',
+    width: 1280,
+    height: 720,
   },
   render: {
     pixelArt: false,
