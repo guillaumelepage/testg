@@ -5,8 +5,11 @@ import { WorldScene } from './game/scenes/WorldScene';
 import { BattleScene } from './game/scenes/BattleScene';
 import { UIScene } from './game/scenes/UIScene';
 
-// Cap DPR at 2 for performance (phones are often 3×, overkill for a canvas game)
+// Render at the device's native CSS resolution → no letterbox bars on any screen.
+// Zoom = DPR (capped at 2) so the canvas backing store is at native device pixels → no blur.
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const W   = window.innerWidth;
+const H   = window.innerHeight;
 
 const config = {
   type: Phaser.AUTO,
@@ -17,12 +20,12 @@ const config = {
     arcade: { gravity: { y: 0 }, debug: false },
   },
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    mode: Phaser.Scale.RESIZE,   // canvas always fills the container exactly
+    autoCenter: Phaser.Scale.NO_CENTER,
     parent: 'game-container',
-    width: 1280,
-    height: 720,
-    zoom: DPR,        // canvas renders at native device resolution → no blur
+    width: W,
+    height: H,
+    zoom: DPR,
   },
   render: {
     pixelArt: false,

@@ -114,8 +114,7 @@ export class MenuScene extends Phaser.Scene {
     this._buildTutorialBtn(W, H);
 
     // ── Single global keyboard handler ──────────────────────────────────────
-    // All inputs funnel through here — no duplicate listeners, no bleed-through.
-    this.input.keyboard.on('keydown', (e) => {
+    this.input.keyboard?.on('keydown', (e) => {
       if (!this.activeInput) return;
       const s = this.activeInput.state;
 
@@ -183,65 +182,82 @@ export class MenuScene extends Phaser.Scene {
   // ─── Title bar ───────────────────────────────────────────────────────────────
 
   _buildTitle(W, H) {
+    const titleH = Math.max(44, Math.floor(H * 0.115));
     const g = this.add.graphics();
-    g.fillStyle(0x120900, 0.92); g.fillRect(0, 18, W, 52);
-    g.lineStyle(2, 0xc8960c, 0.45); g.moveTo(0, 70); g.lineTo(W, 70); g.strokePath();
-    g.fillStyle(0xc8960c, 0.35); g.fillRect(0, 18, W, 2);
+    g.fillStyle(0x120900, 0.92); g.fillRect(0, 8, W, titleH);
+    g.lineStyle(2, 0xc8960c, 0.45); g.moveTo(0, 8 + titleH); g.lineTo(W, 8 + titleH); g.strokePath();
+    g.fillStyle(0xc8960c, 0.35); g.fillRect(0, 8, W, 2);
 
-    this.add.text(W / 2, 44, '⚔   CONQUÊTE MÉDIÉVALE   ⚔', {
-      fontFamily: 'Georgia, serif', fontSize: '26px', color: '#c8960c',
+    const fs = Math.max(14, Math.floor(W / 52));
+    this.add.text(W / 2, 8 + titleH / 2, '⚔  CONQUÊTE MÉDIÉVALE  ⚔', {
+      fontFamily: 'Georgia, serif', fontSize: `${fs}px`, color: '#c8960c',
       shadow: { offsetX: 2, offsetY: 2, color: '#000', blur: 6, fill: true },
     }).setOrigin(0.5);
 
-    this.connTxt = this.add.text(W - 24, 50, '● Connexion...', {
+    this.connTxt = this.add.text(W - 12, 8 + titleH / 2, '● Connexion...', {
       fontFamily: 'monospace', fontSize: '11px', color: '#888855',
     }).setOrigin(1, 0.5);
+
+    // Store titleH for panels
+    this._titleH = 8 + titleH + 6;
   }
 
   // ─── Left panel — Profile ─────────────────────────────────────────────────────
 
   _buildLeftPanel(W, H) {
-    const px = 22, py = 82, pw = 360, ph = H - 108;
+    const py = this._titleH;
+    const ph = H - py - 36;
+    const pw = Math.max(180, Math.floor(W * 0.29));
+    const px = 12;
+    this._leftPW = pw; // share with right panel
     this._drawPanel(px, py, pw, ph, 'VOTRE PROFIL');
 
     // Name
-    this.add.text(px + 14, py + 42, 'Nom du seigneur', {
-      fontFamily: 'sans-serif', fontSize: '12px', color: '#c8a060',
+    this.add.text(px + 10, py + 38, 'Nom du seigneur', {
+      fontFamily: 'sans-serif', fontSize: '11px', color: '#c8a060',
     });
-    this.nameInput = this._createInput(px + 14, py + 60, pw - 28, 'Entrez votre nom...', 22);
+    this.nameInput = this._createInput(px + 10, py + 54, pw - 20, 'Votre nom...', 22);
 
-    // Clan label + separator
-    this.add.text(px + 14, py + 106, 'Choisissez votre clan', {
-      fontFamily: 'sans-serif', fontSize: '12px', color: '#c8a060',
+    // Clan label
+    this.add.text(px + 10, py + 92, 'Clan', {
+      fontFamily: 'sans-serif', fontSize: '11px', color: '#c8a060',
     });
     const sl = this.add.graphics();
     sl.lineStyle(1, 0xc8960c, 0.25);
-    sl.moveTo(px + 14, py + 122); sl.lineTo(px + pw - 14, py + 122); sl.strokePath();
+    sl.moveTo(px + 10, py + 106); sl.lineTo(px + pw - 10, py + 106); sl.strokePath();
 
-    // Clan grid (2 columns)
-    const gapX = 8, gapY = 6;
-    const bw = (pw - 28 - gapX) / 2;
-    const bh = 56;
+    // Clan grid — 2 cols, rows auto-sized to fit available height
+    const gapX = 5, gapY = 4;
+    const cols = 2;
+    const bw = Math.floor((pw - 20 - gapX) / cols);
+    const availH = ph - 116;
+    const rows   = Math.ceil(CLANS.length / cols);
+    const bh     = Math.max(38, Math.floor((availH - gapY * (rows - 1)) / rows));
 
     CLANS.forEach((clan, i) => {
-      const col = i % 2, row = Math.floor(i / 2);
-      const bx = px + 14 + col * (bw + gapX);
-      const by = py + 128 + row * (bh + gapY);
+      const col = i % cols, row = Math.floor(i / cols);
+      const bx = px + 10 + col * (bw + gapX);
+      const by = py + 110 + row * (bh + gapY);
 
       const selected = i === 0;
       const bg = this.add.rectangle(bx + bw / 2, by + bh / 2, bw, bh, clan.color, 0.88)
         .setInteractive({ useHandCursor: true })
         .setStrokeStyle(selected ? 2 : 1, selected ? 0xffd700 : 0x555535);
 
-      this.add.text(bx + 8,      by + 8,  clan.icon,  { fontSize: '15px' });
-      this.add.text(bx + 28,     by + 7,  clan.label, {
-        fontFamily: 'serif', fontSize: '11px', color: '#d4c090',
-        wordWrap: { width: bw - 34 },
+      const iconFs = Math.max(10, Math.floor(bh * 0.28));
+      const lblFs  = Math.max(8,  Math.floor(bh * 0.23));
+      const bonFs  = Math.max(7,  Math.floor(bh * 0.17));
+      this.add.text(bx + 5, by + 5, clan.icon, { fontSize: `${iconFs}px` });
+      this.add.text(bx + 5 + iconFs + 2, by + 4, clan.label, {
+        fontFamily: 'serif', fontSize: `${lblFs}px`, color: '#d4c090',
+        wordWrap: { width: bw - iconFs - 12 },
       });
-      this.add.text(bx + 8,      by + 36, clan.bonus, {
-        fontFamily: 'monospace', fontSize: '9px', color: '#a08050',
-        wordWrap: { width: bw - 12 },
-      });
+      if (bh > 48) {
+        this.add.text(bx + 5, by + bh - bonFs - 6, clan.bonus, {
+          fontFamily: 'monospace', fontSize: `${bonFs}px`, color: '#a08050',
+          wordWrap: { width: bw - 8 },
+        });
+      }
 
       bg.on('pointerover', () => { if (this.selectedClan.key !== clan.key) bg.setStrokeStyle(1, 0xc8960c, 0.8); });
       bg.on('pointerout',  () => { if (this.selectedClan.key !== clan.key) bg.setStrokeStyle(1, 0x555535); });
@@ -262,8 +278,12 @@ export class MenuScene extends Phaser.Scene {
   // ─── Right panel — Create / Join ──────────────────────────────────────────────
 
   _buildRightPanel(W, H) {
-    const px = 400, py = 82, pw = W - px - 22, ph = H - 108;
-    const topH = 205, gap = 12;
+    const px  = this._leftPW + 24;
+    const py  = this._titleH;
+    const pw  = W - px - 12;
+    const ph  = H - py - 36;
+    const topH = Math.max(160, Math.floor(H * 0.36));
+    const gap  = 10;
     const botH = ph - topH - gap;
 
     // ── CREATE ──────────────────────────────────────────────────────────────
@@ -416,9 +436,12 @@ export class MenuScene extends Phaser.Scene {
   _showHeroPicker(onConfirm) {
     const { width: W, height: H } = this.cameras.main;
     const heroes = Object.entries(HERO_DEFS);
-    const cardW = 200, cardH = 260, gap = 20;
+    const cardW  = Math.max(140, Math.floor((Math.min(W, 720) - 100) / heroes.length));
+    const cardH  = Math.max(220, Math.floor(cardW * 1.3));
+    const gap    = Math.max(8, Math.floor(W * 0.015));
     const totalW = heroes.length * cardW + (heroes.length - 1) * gap;
-    const panelW = totalW + 60, panelH = 360;
+    const panelW = Math.min(W - 32, totalW + 60);
+    const panelH = Math.min(H - 60, cardH + 100);
     const cx = W / 2, cy = H / 2;
 
     const overlay = [];
@@ -529,9 +552,12 @@ export class MenuScene extends Phaser.Scene {
     this._tutContent = [];
     this._tutPage    = 0;
 
+    const tW = Math.min(W - 32, 740);
+    const tH = Math.min(H - 40, 500);
     const dimmer = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.78).setDepth(50).setInteractive();
-    const panel  = this.add.rectangle(W / 2, H / 2, 740, 500, 0x10080e).setDepth(51)
+    const panel  = this.add.rectangle(W / 2, H / 2, tW, tH, 0x10080e).setDepth(51)
       .setStrokeStyle(3, 0xc8960c, 0.75);
+    this._tutW = tW; this._tutH = tH;
 
     this._tutOverlay = [dimmer, panel];
     dimmer.on('pointerdown', () => this._closeTutorial());
@@ -546,37 +572,44 @@ export class MenuScene extends Phaser.Scene {
     const { width: W, height: H } = this.cameras.main;
     const cx = W / 2, cy = H / 2;
     const page = TUTORIAL[pageIdx];
+    const tW   = this._tutW || Math.min(W - 32, 740);
+    const tH   = this._tutH || Math.min(H - 40, 500);
+    const hW   = tW / 2;
+    const hH   = tH / 2;
+    const bodyW = Math.floor(tW * 0.52);  // ~left 52% for text
+    const illCx = cx + Math.floor(tW * 0.22); // illustration centre
 
     // Header
-    const hdr = this.add.rectangle(cx, cy - 215, 740, 42, 0x1e1206, 1).setDepth(52);
-    const ttl = this.add.text(cx, cy - 215, page.title, {
-      fontFamily: 'Georgia, serif', fontSize: '19px', color: '#c8960c',
+    const hdr = this.add.rectangle(cx, cy - hH + 21, tW, 42, 0x1e1206, 1).setDepth(52);
+    const ttl = this.add.text(cx, cy - hH + 21, page.title, {
+      fontFamily: 'Georgia, serif', fontSize: `${Math.max(14, Math.floor(tW / 39))}px`, color: '#c8960c',
     }).setOrigin(0.5).setDepth(53);
-    const pgn = this.add.text(cx + 350, cy - 215, `${pageIdx + 1} / ${TUTORIAL.length}`, {
+    const pgn = this.add.text(cx + hW - 10, cy - hH + 21, `${pageIdx + 1} / ${TUTORIAL.length}`, {
       fontFamily: 'monospace', fontSize: '12px', color: '#886630',
     }).setOrigin(1, 0.5).setDepth(53);
 
     // Body text (left column)
-    const body = this.add.text(cx - 350, cy - 185, page.lines.join('\n'), {
-      fontFamily: 'sans-serif', fontSize: '14px', color: '#cfc090',
-      lineSpacing: 5, wordWrap: { width: 380 },
+    const body = this.add.text(cx - hW + 16, cy - hH + 50, page.lines.join('\n'), {
+      fontFamily: 'sans-serif', fontSize: `${Math.max(11, Math.floor(tW / 55))}px`, color: '#cfc090',
+      lineSpacing: 5, wordWrap: { width: bodyW },
     }).setDepth(52);
 
-    // Illustration (right column)
+    // Illustration (right column) — only if enough width
     const illGfx = this.add.graphics().setDepth(52);
-    this._drawIllustration(illGfx, pageIdx, cx + 150, cy - 20);
+    if (tW > 480) this._drawIllustration(illGfx, pageIdx, illCx, cy - 10);
 
     // Close ✕
-    const closeX = this.add.text(cx + 356, cy - 232, '✕', {
+    const closeX = this.add.text(cx + hW - 10, cy - hH + 4, '✕', {
       fontFamily: 'sans-serif', fontSize: '20px', color: '#886630',
-    }).setInteractive({ useHandCursor: true }).setDepth(53);
+    }).setInteractive({ useHandCursor: true }).setDepth(53).setOrigin(1, 0);
     closeX.on('pointerover', () => closeX.setColor('#ffd700'));
     closeX.on('pointerout',  () => closeX.setColor('#886630'));
     closeX.on('pointerdown', () => this._closeTutorial());
 
     // Page indicators (dots)
+    const dotY = cy + hH - 28;
     for (let i = 0; i < TUTORIAL.length; i++) {
-      const dot = this.add.circle(cx - 40 + i * 20, cy + 210, i === pageIdx ? 6 : 4,
+      const dot = this.add.circle(cx - 40 + i * 20, dotY, i === pageIdx ? 6 : 4,
         i === pageIdx ? 0xffd700 : 0x555533).setDepth(53);
       this._tutContent.push(dot);
     }
@@ -584,18 +617,19 @@ export class MenuScene extends Phaser.Scene {
     // Prev / Next buttons
     const hasPrev = pageIdx > 0;
     const hasNext = pageIdx < TUTORIAL.length - 1;
+    const btnY = cy + hH - 28;
 
-    const prevBg = this.add.rectangle(cx - 130, cy + 210, 120, 36,
+    const prevBg = this.add.rectangle(cx - 130, btnY, 120, 36,
       hasPrev ? 0x2a1a06 : 0x111111, 0.92)
       .setInteractive({ useHandCursor: hasPrev }).setStrokeStyle(1, hasPrev ? 0x886630 : 0x222222).setDepth(53);
-    const prevTxt = this.add.text(cx - 130, cy + 210, '← Précédent', {
+    const prevTxt = this.add.text(cx - 130, btnY, '← Précédent', {
       fontFamily: 'sans-serif', fontSize: '13px', color: hasPrev ? '#c8a060' : '#333322',
     }).setOrigin(0.5).setDepth(54);
 
-    const nextBg = this.add.rectangle(cx + 130, cy + 210, 120, 36,
-      hasNext ? 0x1a3020 : 0x1a3020, 0.92)
+    const nextBg = this.add.rectangle(cx + 130, btnY, 120, 36,
+      0x1a3020, 0.92)
       .setInteractive({ useHandCursor: true }).setStrokeStyle(1, 0x3a6040).setDepth(53);
-    const nextTxt = this.add.text(cx + 130, cy + 210, hasNext ? 'Suivant →' : 'Fermer  ✓', {
+    const nextTxt = this.add.text(cx + 130, btnY, hasNext ? 'Suivant →' : 'Fermer  ✓', {
       fontFamily: 'sans-serif', fontSize: '13px', color: '#88cc88',
     }).setOrigin(0.5).setDepth(54);
 
