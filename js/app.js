@@ -7,10 +7,7 @@ import { UIScene } from './game/scenes/UIScene';
 
 const config = {
   type: Phaser.AUTO,
-  width: 1280,
-  height: 720,
   backgroundColor: '#1a0f05',
-  parent: 'game-container',
   scene: [BootScene, MenuScene, WorldScene, BattleScene, UIScene],
   physics: {
     default: 'arcade',

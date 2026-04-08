@@ -133,7 +133,7 @@ io.on('connection', (socket) => {
       rooms.delete(code);
       console.log(`[room] ${code} supprimée (vide)`);
     }
-J''
+
     console.log(`[-] ${socket.id} disconnected from ${code}`);
   });
 });
