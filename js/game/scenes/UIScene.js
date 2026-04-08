@@ -50,6 +50,20 @@ export class UIScene extends Phaser.Scene {
     this.buildMenu = null;
     this.buildMenuVisible = false;
 
+    // ── Cancel build mode button (touch-friendly, visible only in build mode) ──
+    const cancelBtn = this.add.rectangle(W / 2, H - 36, 160, 40, 0x3a0a0a, 0.92)
+      .setStrokeStyle(2, 0xff4444, 0.8).setInteractive({ useHandCursor: true }).setVisible(false);
+    const cancelTxt = this.add.text(W / 2, H - 36, '✕  Annuler', {
+      fontFamily: 'Georgia, serif', fontSize: '14px', color: '#ff8888',
+    }).setOrigin(0.5).setVisible(false);
+    cancelBtn.on('pointerdown', () => {
+      this.scene.get('World')?._cancelBuildMode();
+      this._closeBuildMenu();
+      this._hideCancelBtn();
+    });
+    this._cancelBtn  = cancelBtn;
+    this._cancelBtnTxt = cancelTxt;
+
     // ── Message area ──────────────────────────────────────────────────────────
     this.messageTxt = this.add.text(W / 2, H - 72, '', {
       fontFamily: 'Georgia, serif', fontSize: '14px',
@@ -82,6 +96,18 @@ export class UIScene extends Phaser.Scene {
       txt.setText(`${val}`);
       txt.setColor(val < 30 ? '#ff6666' : '#d4c090');
     }
+  }
+
+  // ─── Cancel build button (touch) ───────────────────────────────────────────
+
+  showCancelBtn() {
+    this._cancelBtn?.setVisible(true);
+    this._cancelBtnTxt?.setVisible(true);
+  }
+
+  _hideCancelBtn() {
+    this._cancelBtn?.setVisible(false);
+    this._cancelBtnTxt?.setVisible(false);
   }
 
   // ─── Messages ──────────────────────────────────────────────────────────────

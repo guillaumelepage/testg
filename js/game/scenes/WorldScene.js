@@ -78,14 +78,19 @@ export class WorldScene extends Phaser.Scene {
     for (const npc  of (this.shared.npcs || []))  this._spawnNpc(npc);
 
     // ── Input ─────────────────────────────────────────────────────────────────
-    this.input.on('pointerdown', this._onWorldClick, this);
-    this.input.on('pointermove', this._onMouseMove,  this);
+    this.input.on('pointerdown', this._onPointerDown, this);
+    this.input.on('pointermove', this._onMouseMove,   this);
+    this.input.on('pointerup',   this._onPointerUp,   this);
+
+    // Touch drag / pinch state
+    this._drag = null;        // { x, y, camX, camY, moved }
+    this._pinch = null;       // { dist, zoom }
 
     // ── Keyboard ──────────────────────────────────────────────────────────────
-    this.cursors = this.input.keyboard.createCursorKeys();
-    this.wasd    = this.input.keyboard.addKeys({ up: 'W', left: 'A', down: 'S', right: 'D' });
+    this.cursors  = this.input.keyboard?.createCursorKeys();
+    this.wasd     = this.input.keyboard?.addKeys({ up: 'W', left: 'A', down: 'S', right: 'D' });
     this.camSpeed = 8;
-    this.input.keyboard.on('keydown-ESC', () => this._cancelBuildMode());
+    this.input.keyboard?.on('keydown-ESC', () => this._cancelBuildMode());
 
     // ── Wall drag state ───────────────────────────────────────────────────────
     this._lastWallTile = null;
@@ -96,7 +101,7 @@ export class WorldScene extends Phaser.Scene {
     // ── Gathering badge (small icon following gathering workers) ──────────────
     this.gatherBadges = new Map(); // unitId -> text
 
-    // ── Zoom toward cursor ────────────────────────────────────────────────────
+    // ── Zoom: mouse wheel ─────────────────────────────────────────────────────
     this.input.on('wheel', (ptr, _obj, _dx, dy) => {
       const cam = this.cameras.main;
       const wp0 = cam.getWorldPoint(ptr.x, ptr.y);
@@ -141,24 +146,106 @@ export class WorldScene extends Phaser.Scene {
   // ─── Camera ───────────────────────────────────────────────────────────────
 
   _handleCameraScroll() {
+    // Skip keyboard/edge scroll if touch-dragging (touch drag handles panning)
+    if (this._drag?.moved) return;
+
     const cam = this.cameras.main;
     const { width: sw, height: sh } = this.scale;
     const ptr = this.input.activePointer;
     const edge = 40, spd = this.camSpeed;
     let dx = 0, dy = 0;
 
-    if (this.cursors.left.isDown  || this.wasd.left.isDown  || ptr.x < edge)       dx = -spd;
-    else if (this.cursors.right.isDown || this.wasd.right.isDown || ptr.x > sw - edge) dx =  spd;
-    if (this.cursors.up.isDown    || this.wasd.up.isDown    || ptr.y < edge)       dy = -spd;
-    else if (this.cursors.down.isDown  || this.wasd.down.isDown  || ptr.y > sh - edge) dy =  spd;
+    const kLeft  = this.cursors?.left.isDown  || this.wasd?.left.isDown;
+    const kRight = this.cursors?.right.isDown || this.wasd?.right.isDown;
+    const kUp    = this.cursors?.up.isDown    || this.wasd?.up.isDown;
+    const kDown  = this.cursors?.down.isDown  || this.wasd?.down.isDown;
+
+    // Edge panning only for mouse (not touch, where ptr.x is at last tap position)
+    const isMouse = ptr.button !== undefined && !this.sys.game.device.os.android && !this.sys.game.device.os.iOS;
+    const eLeft  = isMouse && ptr.x < edge;
+    const eRight = isMouse && ptr.x > sw - edge;
+    const eUp    = isMouse && ptr.y < edge;
+    const eDown  = isMouse && ptr.y > sh - edge;
+
+    if (kLeft  || eLeft)  dx = -spd;
+    else if (kRight || eRight) dx =  spd;
+    if (kUp    || eUp)    dy = -spd;
+    else if (kDown  || eDown)  dy =  spd;
 
     if (dx !== 0) cam.scrollX += dx;
     if (dy !== 0) cam.scrollY += dy;
   }
 
-  // ─── Mouse ────────────────────────────────────────────────────────────────
+  // ─── Pointer down / up (mouse + touch) ───────────────────────────────────
+
+  _onPointerDown(ptr) {
+    const ptrs = this.input.manager.pointers.filter(p => p.isDown);
+
+    if (ptrs.length === 2) {
+      // Pinch start
+      const [a, b] = ptrs;
+      this._pinch = { dist: Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y), zoom: this.cameras.main.zoom };
+      this._drag  = null;
+      return;
+    }
+
+    // Right-click → cancel immediately (desktop)
+    if (ptr.rightButtonDown()) {
+      this._cancelBuildMode();
+      this._deselectAll();
+      return;
+    }
+
+    // Single pointer: start potential drag
+    const cam = this.cameras.main;
+    this._drag = { x: ptr.x, y: ptr.y, camX: cam.scrollX, camY: cam.scrollY, moved: false };
+  }
+
+  _onPointerUp(ptr) {
+    // If this was a clean tap (not a drag), fire the click handler
+    if (this._drag && !this._drag.moved) {
+      this._onWorldClick(ptr);
+    }
+    this._drag  = null;
+    this._pinch = null;
+  }
+
+  // ─── Mouse / touch move ────────────────────────────────────────────────────
 
   _onMouseMove(ptr) {
+    const ptrs = this.input.manager.pointers.filter(p => p.isDown);
+
+    // ── Pinch zoom (2 fingers) ────────────────────────────────────────────────
+    if (ptrs.length === 2 && this._pinch) {
+      const [a, b] = ptrs;
+      const newDist = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+      const scale   = newDist / this._pinch.dist;
+      const cam     = this.cameras.main;
+      const midX    = (a.x + b.x) / 2;
+      const midY    = (a.y + b.y) / 2;
+      const wp0     = cam.getWorldPoint(midX, midY);
+      cam.setZoom(Phaser.Math.Clamp(this._pinch.zoom * scale, 0.3, 2.5));
+      const wp1 = cam.getWorldPoint(midX, midY);
+      cam.scrollX -= (wp1.x - wp0.x);
+      cam.scrollY -= (wp1.y - wp0.y);
+      return;
+    }
+
+    // ── Single-finger / mouse drag → pan camera ───────────────────────────────
+    if (this._drag && ptr.isDown && !this.buildMode) {
+      const dx = ptr.x - this._drag.x;
+      const dy = ptr.y - this._drag.y;
+      if (!this._drag.moved && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        this._drag.moved = true;
+      }
+      if (this._drag.moved) {
+        const cam = this.cameras.main;
+        cam.scrollX = this._drag.camX - dx / cam.zoom;
+        cam.scrollY = this._drag.camY - dy / cam.zoom;
+        return;
+      }
+    }
+
     const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
     const tx = Math.floor(wp.x / TILE_SIZE);
     const ty = Math.floor(wp.y / TILE_SIZE);
@@ -169,7 +256,7 @@ export class WorldScene extends Phaser.Scene {
       this._setCursor('crosshair');
       this.hoverGfx.clear();
 
-      // Wall drag: paint while holding mouse button
+      // Wall drag: paint while holding (mouse or touch)
       if (this.buildMode === 'wall' && ptr.isDown) {
         const key = `${tx},${ty}`;
         if (key !== this._lastWallTile) {
@@ -218,12 +305,6 @@ export class WorldScene extends Phaser.Scene {
   // ─── Click ────────────────────────────────────────────────────────────────
 
   _onWorldClick(ptr) {
-    if (ptr.rightButtonDown()) {
-      this._cancelBuildMode();
-      this._deselectAll();
-      return;
-    }
-
     const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
     const tx = Math.floor(wp.x / TILE_SIZE);
     const ty = Math.floor(wp.y / TILE_SIZE);
@@ -360,13 +441,15 @@ export class WorldScene extends Phaser.Scene {
   _enterBuildMode(type) {
     this.buildMode = type;
     this.buildCursor.setVisible(true);
-    this.scene.get('UI')?.showMessage(`Cliquez pour poser : ${BUILDING_DATA[type]?.label}  (clic droit = annuler)`, 0xffd700);
+    this.scene.get('UI')?.showMessage(`Cliquez pour poser : ${BUILDING_DATA[type]?.label}`, 0xffd700);
+    this.scene.get('UI')?.showCancelBtn();
   }
 
   _cancelBuildMode() {
     this.buildMode = null;
     this.buildCursor.setVisible(false);
     this._setCursor('default');
+    this.scene.get('UI')?._hideCancelBtn();
   }
 
   // ─── Spawn helpers ────────────────────────────────────────────────────────
