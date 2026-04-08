@@ -147,6 +147,12 @@ class GameRoom {
     const mobRand = rng(seed ^ 0x5a5a5a5a);
     this._spawnNeutralMobs(mobRand);
 
+    // ── NPCs ──────────────────────────────────────────────────────────────────
+    this.shared.npcs = SERVER_NPC_DEFS.map(d => ({
+      ...d, quest: { ...d.quest },
+      questAccepted: false, questProgress: 0, questCompleted: false,
+    }));
+
     this.activeBattle = null;
   }
 
@@ -178,12 +184,43 @@ class GameRoom {
     });
   }
 
-  join(socketId, name, clan) {
+  join(socketId, name, clan, heroType) {
     if (this.playerOrder.length >= 2) return false;
     const num = this.playerOrder.length + 1;
-    this.players[socketId] = { id: `p${num}`, name, clan, socketId };
+    this.players[socketId] = { id: `p${num}`, name, clan, socketId, heroType: heroType || 'roi_guerrier' };
     this.playerOrder.push(socketId);
     return true;
+  }
+
+  // Called when both players are connected (state → 'playing')
+  startGame() {
+    const spawnPoints = [
+      { x: 7, y: 5 },
+      { x: MAP_WIDTH - 8, y: MAP_HEIGHT - 6 },
+    ];
+    this.playerOrder.forEach((socketId, i) => {
+      const player = this.players[socketId];
+      const sp = spawnPoints[i] || spawnPoints[0];
+      this._addHero(player.heroType || 'roi_guerrier', sp.x, sp.y, socketId);
+    });
+  }
+
+  _addHero(heroType, x, y, socketId) {
+    const stats = HERO_BASE_STATS[heroType] || HERO_BASE_STATS['roi_guerrier'];
+    const hero = {
+      id: this._nextId(), type: heroType, x, y, owner: 'player',
+      hp: stats.maxHp, maxHp: stats.maxHp,
+      moves: stats.moves.map(m => ({ ...m })),
+      gatherState: 'idle', targetResource: null,
+      inventory: 0, inventoryMax: 0, inventoryType: null,
+      targetX: null, targetY: null,
+      isHero: true, heroOwner: socketId,
+      level: 1, xp: 0,
+      equipment: { ...stats.startEquip },
+      activeQuest: null, questProgress: 0,
+    };
+    this.shared.units.push(hero);
+    return hero;
   }
 
   leave(socketId) {
@@ -201,6 +238,7 @@ class GameRoom {
       map: this.map,
       players: Object.values(this.players),
       shared: this.shared,
+      npcs: this.shared.npcs,
       activeBattle: this.activeBattle,
     };
   }
@@ -214,6 +252,8 @@ class GameRoom {
       case 'PLACE_BUILDING': return this._placeBuilding(action.buildingType, action.tx, action.ty);
       case 'TRAIN_UNIT':     return this._trainUnit(action.buildingId, action.unitType);
       case 'BATTLE_MOVE':    return this._battleMove(action.moveIndex);
+      case 'INTERACT_NPC':   return this._interactNpc(action.npcId, socketId);
+      case 'ACCEPT_QUEST':   return this._acceptQuest(action.npcId, action.heroId);
       default: return null;
     }
   }
@@ -232,10 +272,13 @@ class GameRoom {
       const nStats = UNIT_BASE_STATS[neutral.type];
       const dmg = Math.floor((nStats?.atk || 8) * 0.4);
       unit.hp = Math.max(1, unit.hp - dmg);
+      const mobType = neutral.type;
       this.shared.units = this.shared.units.filter(u => u.id !== neutral.id);
       const rewardTypes = ['wood', 'stone', 'gold', 'food'];
       const rType = rewardTypes[Math.floor(Math.random() * 4)];
       this.shared.resources[rType] = (this.shared.resources[rType] || 0) + (nStats?.reward || 10);
+      // Quest progress: kill_mobs
+      if (unit.isHero) this._updateQuestProgress(unit, 'kill_mobs', mobType);
       // Walk to the mob's tile after fighting
       unit.targetX = tx; unit.targetY = ty;
       unit.gatherState = 'idle'; unit.targetResource = null;
@@ -248,6 +291,9 @@ class GameRoom {
       this.enemy.aggroLevel = Math.min(100, this.enemy.aggroLevel + 40);
       return this._startBattle(unit, enemy);
     }
+
+    // Wall blocks destination
+    if (this.shared.buildings.find(b => b.type === 'wall' && b.x === tx && b.y === ty && !b.underConstruction)) return null;
 
     // Normal tile → set movement target, unit walks there step by step
     unit.targetX = tx;
@@ -358,6 +404,7 @@ class GameRoom {
     const tryStep = (nx, ny) => {
       if (nx < 0 || nx >= MAP_WIDTH || ny < 0 || ny >= MAP_HEIGHT) return false;
       if (this.map[ny][nx] === T.WATER || this.map[ny][nx] === T.MOUNTAIN) return false;
+      if (this.shared.buildings.find(b => b.type === 'wall' && b.x === nx && b.y === ny && !b.underConstruction)) return false;
       unit.x = nx; unit.y = ny; return true;
     };
     if (Math.abs(dx) >= Math.abs(dy)) {
@@ -452,6 +499,8 @@ class GameRoom {
     for (const [res, amount] of Object.entries(cost)) this.shared.resources[res] -= amount;
     const buildTime = BUILD_TIMES[type] || 10;
     this._addBuilding(type, tx, ty, 'shared', buildTime);
+    // Quest progress: build
+    this._updateQuestProgressAll('build', type);
     return { type: 'STATE_UPDATE', shared: this.shared };
   }
 
@@ -467,6 +516,8 @@ class GameRoom {
     }
     for (const [res, amount] of Object.entries(cost)) this.shared.resources[res] -= amount;
     this._addUnit(unitType, building.x + 1, building.y + 1, 'player');
+    // Quest progress: train_units
+    this._updateQuestProgressAll('train_units', unitType);
     return { type: 'STATE_UPDATE', shared: this.shared };
   }
 
@@ -570,7 +621,8 @@ class GameRoom {
           const { dx, dy } = dirs[Math.floor(Math.random() * 4)];
           const nx = unit.x + dx, ny = unit.y + dy;
           if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT
-            && this.map[ny][nx] !== T.WATER && this.map[ny][nx] !== T.MOUNTAIN) {
+            && this.map[ny][nx] !== T.WATER && this.map[ny][nx] !== T.MOUNTAIN
+            && !this.shared.buildings.find(b => b.type === 'wall' && b.x === nx && b.y === ny && !b.underConstruction)) {
             unit.x = nx; unit.y = ny; changed = true;
           }
         }
@@ -590,6 +642,16 @@ class GameRoom {
       }
     }
 
+    // ── Player units dealing with enemy buildings (destroy_buildings quest) ────
+    const enemyBldgs = this.shared.buildings.filter(b => b.owner === 'enemy');
+    for (const b of enemyBldgs) {
+      if (b.hp <= 0) {
+        this._updateQuestProgressAll('destroy_buildings', null);
+        this.shared.buildings = this.shared.buildings.filter(x => x.id !== b.id);
+        changed = true;
+      }
+    }
+
     // ── Spawn new enemy units (scales with time) ──────────────────────────────
     this.enemy.buildTimer++;
     const maxEnemies = Math.min(4 + Math.floor(this.enemy.buildTimer / 80), 14);
@@ -598,6 +660,71 @@ class GameRoom {
     }
 
     return changed;
+  }
+
+  // ─── NPC / Quest ──────────────────────────────────────────────────────────
+
+  _interactNpc(npcId, socketId) {
+    const npc = this.shared.npcs.find(n => n.id === npcId);
+    if (!npc) return null;
+    // Find this player's hero
+    const hero = this.shared.units.find(u => u.isHero && u.heroOwner === socketId);
+    return { type: 'NPC_INTERACT', npc, heroId: hero?.id };
+  }
+
+  _acceptQuest(npcId, heroId) {
+    const npc = this.shared.npcs.find(n => n.id === npcId);
+    const hero = this.shared.units.find(u => u.id === heroId && u.isHero);
+    if (!npc || !hero || npc.questAccepted || npc.questCompleted) return null;
+    npc.questAccepted = true;
+    npc.questProgress = 0;
+    hero.activeQuest = npc.quest.id;
+    hero.questProgress = 0;
+    return { type: 'STATE_UPDATE', shared: this.shared };
+  }
+
+  // Progress quest for a specific hero (mob kill with known killer)
+  _updateQuestProgress(hero, questType, target) {
+    if (!hero.isHero || !hero.activeQuest) return;
+    const npc = this.shared.npcs.find(n => n.quest.id === hero.activeQuest);
+    if (!npc || npc.questCompleted) return;
+    const q = npc.quest;
+    if (q.type !== questType) return;
+    if (target && q.target && q.target !== target) return;
+    npc.questProgress = (npc.questProgress || 0) + 1;
+    hero.questProgress = npc.questProgress;
+    if (npc.questProgress >= q.needed) this._completeQuest(hero, npc);
+  }
+
+  // Progress quest for all heroes (build / train / destroy — any hero may benefit)
+  _updateQuestProgressAll(questType, target) {
+    for (const unit of this.shared.units) {
+      if (!unit.isHero || !unit.activeQuest) continue;
+      this._updateQuestProgress(unit, questType, target);
+    }
+  }
+
+  _completeQuest(hero, npc) {
+    npc.questCompleted = true;
+    hero.activeQuest = null;
+    // XP
+    hero.xp = (hero.xp || 0) + npc.quest.xpReward;
+    // Level up
+    while (hero.level < XP_PER_LEVEL.length - 1 && hero.xp >= XP_PER_LEVEL[hero.level + 1]) {
+      hero.level++;
+      hero.maxHp += 15;
+      hero.hp = Math.min(hero.hp + 15, hero.maxHp);
+    }
+    // Resources
+    for (const [res, amt] of Object.entries(npc.quest.resReward || {})) {
+      this.shared.resources[res] = (this.shared.resources[res] || 0) + amt;
+    }
+    // Equipment slot
+    if (npc.quest.equipReward) {
+      const slot = EQUIP_SLOT_MAP[npc.quest.equipReward] || 'weapon';
+      hero.equipment = hero.equipment || {};
+      hero.equipment[slot] = npc.quest.equipReward;
+    }
   }
 
   // ─── Battle ───────────────────────────────────────────────────────────────
@@ -724,6 +851,8 @@ const UNIT_MOVE_TYPE = {
   compagnie_loup: 'LEGER', frere_epee: 'LOURD', paysan: 'LEGER',
   // Neutral mobs
   loup: 'LEGER', sanglier: 'CAVALERIE', ours: 'LOURD',
+  // Heroes
+  roi_guerrier: 'LOURD', chasseresse: 'LEGER', mage_arcane: 'MAGIE',
 };
 
 const UNIT_BASE_STATS = {
@@ -844,5 +973,91 @@ const UNIT_COSTS = {
   compagnie_loup: { food: 60, gold: 50 },
   frere_epee:     { food: 65, gold: 55 },
 };
+
+// ── Hero base stats ───────────────────────────────────────────────────────────
+const HERO_BASE_STATS = {
+  roi_guerrier: {
+    maxHp: 220, atk: 42, def: 38, spd: 14,
+    moves: [
+      { name: 'Frappe Royale',  moveType: 'LOURD', power: 45, desc: 'Coup de majesté dévastateur.' },
+      { name: 'Décret Martial', moveType: 'LOURD', power: 35, desc: 'Attaque commandée.' },
+      { name: 'Garde du Trône', moveType: 'LOURD', power: 15, desc: 'Position défensive.' },
+      { name: 'Exécution',      moveType: 'LOURD', power: 60, desc: 'Frappe finale puissante.' },
+    ],
+    startEquip: { weapon: 'epee_rouille', armor: 'armure_rouille', accessory: null },
+  },
+  chasseresse: {
+    maxHp: 160, atk: 50, def: 22, spd: 28,
+    moves: [
+      { name: 'Tir de Précision', moveType: 'LEGER', power: 52, desc: 'Vise le point faible.' },
+      { name: 'Pluie de Traits',  moveType: 'LEGER', power: 32, desc: 'Multiples flèches rapides.' },
+      { name: 'Piège Forestier',  moveType: 'LEGER', power: 28, desc: 'Ralentit la cible.' },
+      { name: 'Flèche Enflammée', moveType: 'MAGIE', power: 42, desc: 'Brûle la cible.' },
+    ],
+    startEquip: { weapon: 'arc_primitif', armor: 'armure_rouille', accessory: null },
+  },
+  mage_arcane: {
+    maxHp: 140, atk: 58, def: 15, spd: 18,
+    moves: [
+      { name: 'Éclair Arcane',  moveType: 'MAGIE', power: 55, desc: 'Foudre magique concentrée.' },
+      { name: 'Boule de Feu',   moveType: 'MAGIE', power: 48, desc: 'Explosif et dévastateur.' },
+      { name: 'Gel Temporel',   moveType: 'MAGIE', power: 30, desc: 'Ralentit et endommage.' },
+      { name: 'Nova Arcanique', moveType: 'MAGIE', power: 65, desc: 'Explosion magique ultime.' },
+    ],
+    startEquip: { weapon: 'baton_bois', armor: 'robe_bure', accessory: null },
+  },
+};
+
+// Hero stats also available via UNIT_BASE_STATS for battle lookup
+UNIT_BASE_STATS.roi_guerrier = { ...HERO_BASE_STATS.roi_guerrier };
+UNIT_BASE_STATS.chasseresse  = { ...HERO_BASE_STATS.chasseresse  };
+UNIT_BASE_STATS.mage_arcane  = { ...HERO_BASE_STATS.mage_arcane  };
+
+// XP thresholds per level (index = level)
+const XP_PER_LEVEL = [0, 0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700];
+
+// Equipment → inventory slot map
+const EQUIP_SLOT_MAP = {
+  epee_rouille: 'weapon', epee_bronze: 'weapon', epee_argent: 'weapon', epee_or: 'weapon',
+  arc_primitif: 'weapon', arc_long: 'weapon', arc_composite: 'weapon',
+  baton_bois: 'weapon', baton_runes: 'weapon', baton_cristal: 'weapon',
+  armure_rouille: 'armor', armure_bronze: 'armor', armure_argent: 'armor',
+  robe_bure: 'armor', robe_enchantee: 'armor',
+  amulette_chance: 'accessory', collier_vie: 'accessory', anneau_force: 'accessory',
+};
+
+// ── NPC definitions (server copy) ────────────────────────────────────────────
+const SERVER_NPC_DEFS = [
+  { id: 'npc_ermite',   type: 'ermite',   name: 'Vieux Gontran',      x: 22, y: 22,
+    quest: { id: 'q_loups',   label: 'La Menace des Loups',
+      desc: 'Des loups rôdent près de ma hutte. Éliminez-en 3.',
+      type: 'kill_mobs', target: 'loup', needed: 3,
+      xpReward: 80,  resReward: { food: 50 },             equipReward: 'epee_bronze' } },
+  { id: 'npc_marchand', type: 'marchand', name: 'Aldric le Marchand',  x: 42, y: 28,
+    quest: { id: 'q_marche',  label: 'Le Commerce Florissant',
+      desc: 'Construisez un marché pour relancer les échanges.',
+      type: 'build', target: 'market', needed: 1,
+      xpReward: 120, resReward: { gold: 80 },              equipReward: 'amulette_chance' } },
+  { id: 'npc_chef',     type: 'ancien',   name: 'Dame Éléonore',       x: 58, y: 18,
+    quest: { id: 'q_soldats', label: 'Lever une Armée',
+      desc: 'Recrutez 5 soldats pour défendre le royaume.',
+      type: 'train_units', target: null, needed: 5,
+      xpReward: 150, resReward: { gold: 100, food: 50 },  equipReward: 'armure_bronze' } },
+  { id: 'npc_scout',    type: 'scout',    name: "Raban l'Éclaireur",   x: 32, y: 44,
+    quest: { id: 'q_ours',    label: 'Le Grand Ours',
+      desc: 'Un ours terrifiant menace nos forêts. Abattez-le !',
+      type: 'kill_mobs', target: 'ours', needed: 1,
+      xpReward: 200, resReward: { stone: 100 },            equipReward: 'arc_long' } },
+  { id: 'npc_pretre',   type: 'pretre',   name: 'Frère Ansbert',       x: 52, y: 48,
+    quest: { id: 'q_eglise',  label: 'La Maison de Dieu',
+      desc: 'Érigez une église pour bénir notre peuple.',
+      type: 'build', target: 'church', needed: 1,
+      xpReward: 180, resReward: { gold: 60, food: 80 },   equipReward: 'collier_vie' } },
+  { id: 'npc_seigneur', type: 'seigneur', name: 'Seigneur Bertrand',   x: 12, y: 42,
+    quest: { id: 'q_ennemi',  label: "Écraser l'Ennemi",
+      desc: 'Détruisez 2 bâtiments du camp ennemi !',
+      type: 'destroy_buildings', target: null, needed: 2,
+      xpReward: 300, resReward: { gold: 150, stone: 100 }, equipReward: 'epee_argent' } },
+];
 
 module.exports = { GameRoom };

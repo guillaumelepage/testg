@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { socketManager } from '../network/SocketManager';
+import { HERO_DEFS } from '../data/heroes';
 
 // ─── Clans data ──────────────────────────────────────────────────────────────
 
@@ -97,6 +98,7 @@ export class MenuScene extends Phaser.Scene {
     this.activeInput  = null;   // currently focused input
     this.allInputs    = [];     // all registered inputs
     this.selectedClan = CLANS[0];
+    this.selectedHero = 'roi_guerrier';
     this.clanBtns     = [];
     this.availableRooms = [];
     this.roomListObjects = [];  // rendered room rows
@@ -277,12 +279,14 @@ export class MenuScene extends Phaser.Scene {
 
     // State A: create button
     this.createBtn = this._makeButton(px + pw / 2, py + 138, pw - 60, 44,
-      '⚔  Créer la salle  ⚔', 0x3a5080, async () => {
+      '⚔  Créer la salle  ⚔', 0x3a5080, () => {
         const name = this.nameInput.state.value.trim() || 'Joueur 1';
-        try {
-          const res = await socketManager.createRoom(name, this.selectedClan.key);
-          this._showWaitingState(res.code, px, py, pw, topH);
-        } catch (e) { this._showStatus(e.message, '#ff5533'); }
+        this._showHeroPicker(async (heroType) => {
+          try {
+            const res = await socketManager.createRoom(name, this.selectedClan.key, heroType);
+            this._showWaitingState(res.code, px, py, pw, topH);
+          } catch (e) { this._showStatus(e.message, '#ff5533'); }
+        });
       });
 
     // State B: waiting (hidden initially)
@@ -330,11 +334,11 @@ export class MenuScene extends Phaser.Scene {
       fontFamily: 'sans-serif', fontSize: '11px', color: '#888866',
     });
     this.codeInput = this._createInput(px + 14, codeRow + 16, 170, 'XXXXXX', 6);
-    this._makeButton(px + pw - 14 - 170, codeRow + 16, 170, 32, 'Rejoindre →', 0x3a6040, async () => {
+    this._makeButton(px + pw - 14 - 170, codeRow + 16, 170, 32, 'Rejoindre →', 0x3a6040, () => {
       const name = this.nameInput.state.value.trim() || 'Joueur 2';
       const code = this.codeInput.state.value.toUpperCase().trim();
       if (code.length < 3) { this._showStatus('Code trop court (6 lettres requis)', '#ff5533'); return; }
-      await this._doJoin(code, name);
+      this._showHeroPicker((heroType) => this._doJoin(code, name, heroType));
     });
 
     // Status message (shared)
@@ -387,9 +391,9 @@ export class MenuScene extends Phaser.Scene {
         .setStrokeStyle(1, 0x3a2a0a);
       rowBg.on('pointerover', () => rowBg.setStrokeStyle(2, 0xc8960c, 0.9));
       rowBg.on('pointerout',  () => rowBg.setStrokeStyle(1, 0x3a2a0a));
-      rowBg.on('pointerdown', async () => {
+      rowBg.on('pointerdown', () => {
         const name = this.nameInput.state.value.trim() || 'Joueur 2';
-        await this._doJoin(room.code, name);
+        this._showHeroPicker((heroType) => this._doJoin(room.code, name, heroType));
       });
 
       const codeTxt  = this.add.text(x + 10, ry + 5,  room.code,           { fontFamily: 'monospace',     fontSize: '16px', color: '#ffd700' });
@@ -401,10 +405,98 @@ export class MenuScene extends Phaser.Scene {
     });
   }
 
-  async _doJoin(code, name) {
+  async _doJoin(code, name, heroType) {
     try {
-      await socketManager.joinRoom(code, name, this.selectedClan.key);
+      await socketManager.joinRoom(code, name, this.selectedClan.key, heroType || this.selectedHero);
     } catch (e) { this._showStatus(e.message, '#ff5533'); }
+  }
+
+  // ─── Hero picker ──────────────────────────────────────────────────────────────
+
+  _showHeroPicker(onConfirm) {
+    const { width: W, height: H } = this.cameras.main;
+    const heroes = Object.entries(HERO_DEFS);
+    const cardW = 200, cardH = 260, gap = 20;
+    const totalW = heroes.length * cardW + (heroes.length - 1) * gap;
+    const panelW = totalW + 60, panelH = 360;
+    const cx = W / 2, cy = H / 2;
+
+    const overlay = [];
+
+    const dimmer = this.add.rectangle(cx, cy, W, H, 0x000000, 0.82).setDepth(60).setInteractive();
+    const panel  = this.add.rectangle(cx, cy, panelW, panelH, 0x10080e).setDepth(61)
+      .setStrokeStyle(3, 0xc8960c, 0.75);
+    overlay.push(dimmer, panel);
+
+    const title = this.add.text(cx, cy - panelH / 2 + 22, 'CHOISISSEZ VOTRE HÉROS', {
+      fontFamily: 'Georgia, serif', fontSize: '18px', color: '#c8960c',
+    }).setOrigin(0.5).setDepth(62);
+    overlay.push(title);
+
+    let pickedKey = this.selectedHero;
+    const cardBgs = {};
+
+    const startX = cx - totalW / 2;
+    heroes.forEach(([key, def], i) => {
+      const bx = startX + i * (cardW + gap) + cardW / 2;
+      const by = cy + 20;
+
+      const isSelected = key === pickedKey;
+      const cardBg = this.add.rectangle(bx, by, cardW, cardH, isSelected ? 0x2a1a06 : 0x14100a, 0.95)
+        .setStrokeStyle(isSelected ? 2 : 1, isSelected ? 0xffd700 : 0x4a3010)
+        .setInteractive({ useHandCursor: true }).setDepth(62);
+      cardBgs[key] = cardBg;
+
+      // Hero icon
+      const icon = this.add.text(bx, by - cardH / 2 + 36, def.icon, { fontSize: '36px' })
+        .setOrigin(0.5).setDepth(63);
+      const name = this.add.text(bx, by - cardH / 2 + 76, def.label, {
+        fontFamily: 'Georgia, serif', fontSize: '14px', color: '#c8960c',
+      }).setOrigin(0.5).setDepth(63);
+      const desc = this.add.text(bx, by - cardH / 2 + 100, def.desc, {
+        fontFamily: 'sans-serif', fontSize: '10px', color: '#aaaaaa',
+        wordWrap: { width: cardW - 20 }, align: 'center',
+      }).setOrigin(0.5, 0).setDepth(63);
+
+      const stats = [
+        `❤ ${def.maxHp}  ⚔ ${def.atk}  🛡 ${def.def}`,
+        `💨 ${def.spd}   👁 ${def.visionRadius}   ${def.moveType}`,
+      ].join('\n');
+      const statTxt = this.add.text(bx, by + 50, stats, {
+        fontFamily: 'monospace', fontSize: '9px', color: '#b0a080', align: 'center',
+      }).setOrigin(0.5).setDepth(63);
+
+      const moveTxt = this.add.text(bx, by + 90, def.moves.map(m => `• ${m.name}`).join('\n'), {
+        fontFamily: 'sans-serif', fontSize: '9px', color: '#888866', align: 'center',
+      }).setOrigin(0.5, 0).setDepth(63);
+
+      cardBg.on('pointerover', () => { if (key !== pickedKey) cardBg.setStrokeStyle(1, 0xc8960c); });
+      cardBg.on('pointerout',  () => { if (key !== pickedKey) cardBg.setStrokeStyle(1, 0x4a3010); });
+      cardBg.on('pointerdown', () => {
+        pickedKey = key;
+        this.selectedHero = key;
+        for (const [k, bg] of Object.entries(cardBgs)) {
+          bg.setFillStyle(k === key ? 0x2a1a06 : 0x14100a);
+          bg.setStrokeStyle(k === key ? 2 : 1, k === key ? 0xffd700 : 0x4a3010);
+        }
+      });
+
+      overlay.push(cardBg, icon, name, desc, statTxt, moveTxt);
+    });
+
+    // Confirm button
+    const confirmBg = this.add.rectangle(cx, cy + panelH / 2 - 32, 200, 40, 0x1a3a20, 0.95)
+      .setInteractive({ useHandCursor: true }).setStrokeStyle(2, 0x44aa66).setDepth(62);
+    const confirmTxt = this.add.text(cx, cy + panelH / 2 - 32, '✓  Confirmer', {
+      fontFamily: 'Georgia, serif', fontSize: '15px', color: '#88cc88',
+    }).setOrigin(0.5).setDepth(63);
+    confirmBg.on('pointerover', () => confirmBg.setStrokeStyle(2, 0xffd700));
+    confirmBg.on('pointerout',  () => confirmBg.setStrokeStyle(2, 0x44aa66));
+    confirmBg.on('pointerdown', () => {
+      overlay.forEach(o => o.destroy());
+      onConfirm(pickedKey);
+    });
+    overlay.push(confirmBg, confirmTxt);
   }
 
   // ─── Waiting state (after creating a room) ────────────────────────────────────

@@ -22,7 +22,7 @@ class SocketManager {
     // Forwarded server events
     const events = [
       'game_start', 'state_update', 'battle_start', 'battle_update',
-      'battle_end', 'player_left', 'error',
+      'battle_end', 'player_left', 'npc_interact', 'error',
     ];
     for (const ev of events) {
       this.socket.on(ev, (data) => this._emit(ev, data));
@@ -39,18 +39,18 @@ class SocketManager {
     return this;
   }
 
-  createRoom(name, clan) {
+  createRoom(name, clan, heroType) {
     return new Promise((resolve, reject) => {
-      this.socket.emit('create_room', { name, clan }, (res) => {
+      this.socket.emit('create_room', { name, clan, heroType }, (res) => {
         if (res.ok) resolve(res);
         else reject(new Error(res.error));
       });
     });
   }
 
-  joinRoom(code, name, clan) {
+  joinRoom(code, name, clan, heroType) {
     return new Promise((resolve, reject) => {
-      this.socket.emit('join_room', { code, name, clan }, (res) => {
+      this.socket.emit('join_room', { code, name, clan, heroType }, (res) => {
         if (res.ok) resolve(res);
         else reject(new Error(res.error));
       });

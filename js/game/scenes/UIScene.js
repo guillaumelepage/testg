@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { BUILDING_DATA, BUILDABLE } from '../data/buildings';
 import { UNIT_STATS, UNIT_COSTS } from '../data/units';
+import { HERO_DEFS, XP_PER_LEVEL, EQUIPMENT_DEFS } from '../data/heroes';
 
 const PANEL_W = 280;
 
@@ -98,6 +99,12 @@ export class UIScene extends Phaser.Scene {
 
   showUnitPanel(unit) {
     this.hidePanel();
+
+    if (unit.isHero) {
+      this._showHeroPanel(unit);
+      return;
+    }
+
     const stats = UNIT_STATS[unit.type] || {};
     const { width: W, height: H } = this.cameras.main;
     const px = W - PANEL_W - 10;
@@ -138,6 +145,93 @@ export class UIScene extends Phaser.Scene {
       }));
       items.push(this.add.text(px + 10, py + 128 + i * 26, `  ${m.desc}`, {
         fontFamily: 'sans-serif', fontSize: '10px', color: '#888866',
+      }));
+    });
+
+    this.panel = { items };
+  }
+
+  _showHeroPanel(unit) {
+    const def = HERO_DEFS[unit.type] || {};
+    const { width: W, height: H } = this.cameras.main;
+    const px = W - PANEL_W - 10;
+    const panelH = 330;
+    const py = H - panelH - 10;
+    const items = [];
+
+    const bg = this.add.rectangle(px + PANEL_W / 2, py + panelH / 2, PANEL_W, panelH, 0x14080a, 0.95)
+      .setStrokeStyle(2, 0xffd700, 0.9);
+    items.push(bg);
+
+    // Hero title row
+    items.push(this.add.text(px + 10, py + 10, `${def.icon || '✦'} ${def.label || unit.type}`, {
+      fontFamily: 'Georgia, serif', fontSize: '15px', color: '#ffd700',
+    }));
+    items.push(this.add.text(px + PANEL_W - 10, py + 10, `Niv. ${unit.level}`, {
+      fontFamily: 'monospace', fontSize: '13px', color: '#c8960c',
+    }).setOrigin(1, 0));
+
+    // HP bar
+    const hpPct = unit.hp / unit.maxHp;
+    items.push(this.add.rectangle(px + 10, py + 34, PANEL_W - 20, 9, 0x330000).setOrigin(0));
+    items.push(this.add.rectangle(px + 10, py + 34, (PANEL_W - 20) * hpPct, 9,
+      hpPct > 0.5 ? 0x22cc22 : hpPct > 0.25 ? 0xddaa00 : 0xcc2222).setOrigin(0));
+    items.push(this.add.text(px + 10, py + 46, `❤ ${unit.hp} / ${unit.maxHp}`, {
+      fontFamily: 'monospace', fontSize: '10px', color: '#aaaaaa',
+    }));
+
+    // XP bar
+    const xpNext = XP_PER_LEVEL[Math.min(unit.level + 1, XP_PER_LEVEL.length - 1)];
+    const xpPrev = XP_PER_LEVEL[unit.level] || 0;
+    const xpPct  = xpNext > xpPrev ? (unit.xp - xpPrev) / (xpNext - xpPrev) : 1;
+    items.push(this.add.rectangle(px + 10, py + 62, PANEL_W - 20, 7, 0x1a1a3a).setOrigin(0));
+    items.push(this.add.rectangle(px + 10, py + 62, (PANEL_W - 20) * Math.max(0, Math.min(1, xpPct)), 7, 0x4488ff).setOrigin(0));
+    items.push(this.add.text(px + 10, py + 72, `XP ${unit.xp}${xpNext ? ` / ${xpNext}` : ' (max)'}`, {
+      fontFamily: 'monospace', fontSize: '10px', color: '#6699cc',
+    }));
+
+    // Equipment
+    items.push(this.add.text(px + 10, py + 92, 'Équipement :', {
+      fontFamily: 'sans-serif', fontSize: '11px', color: '#c8a060',
+    }));
+    const eq = unit.equipment || {};
+    const slots = [
+      { slot: 'weapon',    icon: '⚔', label: EQUIPMENT_DEFS[eq.weapon]?.label    || 'Aucune' },
+      { slot: 'armor',     icon: '🛡', label: EQUIPMENT_DEFS[eq.armor]?.label     || 'Aucune' },
+      { slot: 'accessory', icon: '💍', label: EQUIPMENT_DEFS[eq.accessory]?.label || 'Aucun'  },
+    ];
+    slots.forEach((s, i) => {
+      items.push(this.add.text(px + 14, py + 108 + i * 18, `${s.icon} ${s.label}`, {
+        fontFamily: 'monospace', fontSize: '10px', color: '#b0a080',
+      }));
+    });
+
+    // Active quest
+    items.push(this.add.text(px + 10, py + 168, 'Quête :', {
+      fontFamily: 'sans-serif', fontSize: '11px', color: '#c8a060',
+    }));
+    const worldScene = this.scene.get('World');
+    const npc = worldScene?.shared?.npcs?.find(n => n.quest.id === unit.activeQuest);
+    const questLine = npc
+      ? `${npc.quest.label}\n(${npc.questProgress || 0} / ${npc.quest.needed})`
+      : 'Aucune quête active\nParlez à un PNJ (❓)';
+    items.push(this.add.text(px + 14, py + 184, questLine, {
+      fontFamily: 'sans-serif', fontSize: '10px', color: npc ? '#ffd700' : '#666644',
+      wordWrap: { width: PANEL_W - 24 },
+    }));
+
+    // Stats line
+    items.push(this.add.text(px + 10, py + 230, `⚔ ${def.atk}  🛡 ${def.def}  💨 ${def.spd}  ${def.moveType}`, {
+      fontFamily: 'monospace', fontSize: '10px', color: '#b0a080',
+    }));
+
+    // Attacks
+    items.push(this.add.text(px + 10, py + 248, 'Attaques :', {
+      fontFamily: 'sans-serif', fontSize: '11px', color: '#c8a060',
+    }));
+    (def.moves || unit.moves || []).slice(0, 4).forEach((m, i) => {
+      items.push(this.add.text(px + 14, py + 264 + i * 16, `• ${m.name}  (${m.power}🗡)`, {
+        fontFamily: 'monospace', fontSize: '9px', color: '#d4c090',
       }));
     });
 

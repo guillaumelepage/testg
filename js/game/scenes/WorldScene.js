@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { socketManager } from '../network/SocketManager';
 import { BUILDING_DATA } from '../data/buildings';
+import { HERO_DEFS } from '../data/heroes';
 
 const TILE_SIZE = 48;
 const MAP_W = 80;
@@ -17,6 +18,7 @@ const UNIT_VISION = {
   paysan: 2,
   homme_armes: 4, archer: 4, mercenaire: 4, compagnie_loup: 4,
   chevalier: 5, garde_roi: 5, croise: 5, frere_epee: 5, banniere_rouge: 5,
+  // Heroes use their own visionRadius from HERO_DEFS
 };
 const BLD_VISION = { town_hall: 7, tower: 5, wall: 2 };
 
@@ -34,7 +36,9 @@ export class WorldScene extends Phaser.Scene {
     this.unitObjects = new Map();
     this.buildingObjects = new Map();
     this.resourceObjects = new Map();
+    this.npcObjects = new Map();
     this.visitedTiles = new Set(); // fog of war memory
+    this.mySocketId = null; // set on game_start
   }
 
   create() {
@@ -71,6 +75,7 @@ export class WorldScene extends Phaser.Scene {
     for (const node of this.shared.resourceNodes) this._spawnResource(node);
     for (const bld  of this.shared.buildings)     this._spawnBuilding(bld);
     for (const unit of this.shared.units)         this._spawnUnit(unit);
+    for (const npc  of (this.shared.npcs || []))  this._spawnNpc(npc);
 
     // ── Input ─────────────────────────────────────────────────────────────────
     this.input.on('pointerdown', this._onWorldClick, this);
@@ -113,7 +118,10 @@ export class WorldScene extends Phaser.Scene {
       .on('battle_start', (data) => this._enterBattle(data.battle))
       .on('battle_update', (data) => this._applyStateUpdate(data.shared))
       .on('battle_end',   (data) => this._applyStateUpdate(data.shared))
-      .on('player_left',  ()     => this.scene.get('UI')?.showMessage('Votre allié a quitté la partie !', 0xff4444));
+      .on('player_left',  ()     => this.scene.get('UI')?.showMessage('Votre allié a quitté la partie !', 0xff4444))
+      .on('npc_interact', (data) => this._showNpcDialogue(data.npc, data.heroId));
+
+    this.mySocketId = socketManager.socket?.id;
 
     // ── HUD ───────────────────────────────────────────────────────────────────
     this.scene.launch('UI', { shared: this.shared, onBuild: (type) => this._enterBuildMode(type) });
@@ -228,6 +236,13 @@ export class WorldScene extends Phaser.Scene {
       } else {
         this._cancelBuildMode();
       }
+      return;
+    }
+
+    // NPC at tile? (hero must be selected to interact)
+    const npc = (this.shared.npcs || []).find(n => n.x === tx && n.y === ty);
+    if (npc && this.selectedUnit?.isHero) {
+      socketManager.sendAction({ type: 'INTERACT_NPC', npcId: npc.id });
       return;
     }
 
@@ -417,15 +432,128 @@ export class WorldScene extends Phaser.Scene {
     const hpBg   = this.add.rectangle(0, 22, 40, 6, 0x330000).setOrigin(0.5);
     const hpFill = this.add.rectangle(-20, 22, 40, 6, 0x22cc22).setOrigin(0, 0.5);
 
+    const children = [img, hpBg, hpFill];
+
+    // Hero: add a quest indicator text above
+    if (unit.isHero) {
+      const questBadge = this.add.text(0, -26, unit.activeQuest ? '❗' : '✦', {
+        fontSize: '12px',
+      }).setOrigin(0.5);
+      children.push(questBadge);
+      // Store reference for updates
+      img._questBadge = questBadge;
+    }
+
     const container = this.add.container(
       unit.x * TILE_SIZE + TILE_SIZE / 2,
       unit.y * TILE_SIZE + TILE_SIZE / 2,
-      [img, hpBg, hpFill]
+      children
     ).setDepth(6);
 
     container.hpFill  = hpFill;
     container.unitRef = unit;
+    container.questBadge = unit.isHero ? children[children.length - 1] : null;
     this.unitObjects.set(unit.id, container);
+  }
+
+  _spawnNpc(npc) {
+    const texKey = `npc_${npc.type}`;
+    const img = this.add.image(
+      npc.x * TILE_SIZE + TILE_SIZE / 2,
+      npc.y * TILE_SIZE + TILE_SIZE / 2,
+      texKey,
+    ).setDisplaySize(36, 36).setDepth(5);
+
+    // Quest indicator above NPC
+    const indicator = npc.questCompleted ? '✓' : npc.questAccepted ? '❗' : '❓';
+    const badge = this.add.text(
+      npc.x * TILE_SIZE + TILE_SIZE / 2,
+      npc.y * TILE_SIZE + TILE_SIZE / 2 - 24,
+      indicator, { fontSize: '14px' },
+    ).setOrigin(0.5).setDepth(7);
+
+    // Name label
+    const label = this.add.text(
+      npc.x * TILE_SIZE + TILE_SIZE / 2,
+      npc.y * TILE_SIZE + TILE_SIZE + 2,
+      npc.name, {
+        fontFamily: 'sans-serif', fontSize: '9px', color: '#d4b060',
+        backgroundColor: '#00000066', padding: { x: 2, y: 1 },
+      },
+    ).setOrigin(0.5, 0).setDepth(7);
+
+    this.npcObjects.set(npc.id, { img, badge, label, npc });
+  }
+
+  _showNpcDialogue(npc, heroId) {
+    if (this._npcDialogue) {
+      this._npcDialogue.forEach(o => o.destroy());
+      this._npcDialogue = null;
+    }
+    const { width: W, height: H } = this.cameras.main;
+    const panelW = 480, panelH = 280;
+    const cx = W / 2, cy = H / 2;
+    const items = [];
+
+    const bg = this.add.rectangle(cx, cy, panelW, panelH, 0x100808, 0.95)
+      .setStrokeStyle(3, 0xc8960c, 0.8).setDepth(30).setScrollFactor(0);
+    items.push(bg);
+
+    // NPC name & quest title
+    items.push(this.add.text(cx, cy - panelH / 2 + 20, `${npc.name}`, {
+      fontFamily: 'Georgia, serif', fontSize: '16px', color: '#c8960c',
+    }).setOrigin(0.5).setDepth(31).setScrollFactor(0));
+
+    const q = npc.quest;
+    items.push(this.add.text(cx, cy - panelH / 2 + 45, `"${q.label}"`, {
+      fontFamily: 'Georgia, serif', fontSize: '13px', color: '#aa8840',
+    }).setOrigin(0.5).setDepth(31).setScrollFactor(0));
+
+    items.push(this.add.text(cx, cy - panelH / 2 + 72, q.desc, {
+      fontFamily: 'sans-serif', fontSize: '12px', color: '#cfc090',
+      wordWrap: { width: panelW - 40 }, align: 'center',
+    }).setOrigin(0.5, 0).setDepth(31).setScrollFactor(0));
+
+    // Rewards
+    const resCost = Object.entries(q.resReward || {}).map(([k, v]) => `${v} ${k}`).join(', ');
+    items.push(this.add.text(cx, cy + 40, `Récompenses : ${q.xpReward} XP · ${resCost} · ${q.equipReward || ''}`, {
+      fontFamily: 'monospace', fontSize: '10px', color: '#88cc88',
+    }).setOrigin(0.5).setDepth(31).setScrollFactor(0));
+
+    const progress = npc.questCompleted ? 'Quête terminée !' :
+      npc.questAccepted ? `Progression : ${npc.questProgress || 0} / ${q.needed}` : '';
+    if (progress) {
+      items.push(this.add.text(cx, cy + 62, progress, {
+        fontFamily: 'monospace', fontSize: '11px', color: npc.questCompleted ? '#ffd700' : '#aaaaaa',
+      }).setOrigin(0.5).setDepth(31).setScrollFactor(0));
+    }
+
+    // Accept button (only if quest not yet taken)
+    if (!npc.questAccepted && !npc.questCompleted && heroId) {
+      const acceptBg = this.add.rectangle(cx, cy + panelH / 2 - 30, 180, 36, 0x1a3a20, 0.95)
+        .setInteractive({ useHandCursor: true }).setStrokeStyle(2, 0x44aa66).setDepth(31).setScrollFactor(0);
+      const acceptTxt = this.add.text(cx, cy + panelH / 2 - 30, '✓ Accepter la quête', {
+        fontFamily: 'Georgia, serif', fontSize: '13px', color: '#88cc88',
+      }).setOrigin(0.5).setDepth(32).setScrollFactor(0);
+      acceptBg.on('pointerdown', () => {
+        socketManager.sendAction({ type: 'ACCEPT_QUEST', npcId: npc.id, heroId });
+        items.forEach(o => o.destroy()); this._npcDialogue = null;
+      });
+      acceptBg.on('pointerover', () => acceptBg.setStrokeStyle(2, 0xffd700));
+      acceptBg.on('pointerout',  () => acceptBg.setStrokeStyle(2, 0x44aa66));
+      items.push(acceptBg, acceptTxt);
+    }
+
+    // Close button
+    const closeTxt = this.add.text(cx + panelW / 2 - 16, cy - panelH / 2 + 10, '✕', {
+      fontFamily: 'sans-serif', fontSize: '16px', color: '#886630',
+    }).setInteractive({ useHandCursor: true }).setOrigin(1, 0).setDepth(32).setScrollFactor(0);
+    closeTxt.on('pointerdown', () => { items.forEach(o => o.destroy()); this._npcDialogue = null; });
+    closeTxt.on('pointerover', () => closeTxt.setColor('#ffd700'));
+    closeTxt.on('pointerout',  () => closeTxt.setColor('#886630'));
+    items.push(closeTxt);
+
+    this._npcDialogue = items;
   }
 
   _updateSelectionRing() {
@@ -545,6 +673,24 @@ export class WorldScene extends Phaser.Scene {
       this._showResourceHighlights(true);
     }
 
+    // Update NPC quest badges
+    for (const npc of (shared.npcs || [])) {
+      const obj = this.npcObjects.get(npc.id);
+      if (obj) {
+        const indicator = npc.questCompleted ? '✓' : npc.questAccepted ? '❗' : '❓';
+        obj.badge.setText(indicator);
+        obj.npc = npc; // keep local reference fresh
+      }
+    }
+
+    // Update hero quest badges
+    for (const unit of shared.units) {
+      const obj = this.unitObjects.get(unit.id);
+      if (obj?.questBadge && unit.isHero) {
+        obj.questBadge.setText(unit.activeQuest ? '❗' : '✦');
+      }
+    }
+
     // Update fog of war
     this._updateFog();
   }
@@ -574,7 +720,9 @@ export class WorldScene extends Phaser.Scene {
     }
     for (const unit of this.shared.units) {
       if (unit.owner === 'enemy' || unit.owner === 'neutral') continue;
-      const r = UNIT_VISION[unit.type] ?? 3;
+      const r = unit.isHero
+        ? (HERO_DEFS[unit.type]?.visionRadius ?? 5)
+        : (UNIT_VISION[unit.type] ?? 3);
       this._addTilesInRadius(visible, unit.x, unit.y, r);
     }
     for (const key of visible) this.visitedTiles.add(key);
