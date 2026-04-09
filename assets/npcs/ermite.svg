@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">
+  <ellipse cx="18" cy="32" rx="9" ry="3" fill="#00000022"/>
+  <!-- staff -->
+  <line x1="25" y1="9" x2="25" y2="30" stroke="#8b6914" stroke-width="2"/>
+  <!-- robe -->
+  <polygon points="18,15 9,30 27,30" fill="#8b6914"/>
+  <rect x="12" y="12" width="12" height="10" fill="#8b6914"/>
+  <!-- hood -->
+  <circle cx="18" cy="9" rx="5.5" fill="#8b6914"/>
+  <!-- face -->
+  <circle cx="18" cy="11" r="3.5" fill="#d4a87a"/>
+</svg>

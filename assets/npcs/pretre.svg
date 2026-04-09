@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">
+  <ellipse cx="18" cy="32" rx="9" ry="3" fill="#00000022"/>
+  <!-- robe -->
+  <polygon points="18,15 9,30 27,30" fill="#e8e8e0"/>
+  <rect x="12" y="12" width="12" height="10" fill="#e8e8e0"/>
+  <!-- gold cross -->
+  <rect x="17" y="15" width="3" height="10" fill="#ffd700"/>
+  <rect x="14" y="19" width="9" height="3" fill="#ffd700"/>
+  <!-- hood -->
+  <circle cx="18" cy="9" r="5.5" fill="#e8e8e0"/>
+  <!-- face -->
+  <circle cx="18" cy="11" r="3.5" fill="#d4a87a"/>
+</svg>

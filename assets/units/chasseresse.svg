@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+  <!-- hero glow -->
+  <circle cx="48" cy="48" r="46" fill="none" stroke="#66ee44" stroke-width="4" opacity="0.38"/>
+  <ellipse cx="52" cy="91" rx="29" ry="6" fill="#00000030"/>
+  <!-- longbow (tall left) -->
+  <path d="M10,20 Q-4,48 10,76" stroke="#6b3a1a" stroke-width="5" fill="none"/>
+  <path d="M10,20 L17,48 L10,76" stroke="#d8c888" stroke-width="2" fill="none"/>
+  <!-- nocked arrow -->
+  <line x1="17" y1="48" x2="75" y2="48" stroke="#d4aa44" stroke-width="3"/>
+  <polygon points="75,48 69,43 69,53" fill="#c0c0c0"/>
+  <!-- quiver right -->
+  <rect x="63" y="26" width="10" height="29" rx="2" fill="#aa8830"/>
+  <line x1="65" y1="16" x2="65" y2="30" stroke="#d4aa44" stroke-width="2"/>
+  <line x1="68" y1="13" x2="68" y2="27" stroke="#d4aa44" stroke-width="2"/>
+  <line x1="71" y1="16" x2="71" y2="30" stroke="#d4aa44" stroke-width="2"/>
+  <!-- leather body -->
+  <ellipse cx="48" cy="56" rx="18" ry="23" fill="#2e7a28"/>
+  <ellipse cx="48" cy="46" rx="15" ry="15" fill="#3a8a38"/>
+  <ellipse cx="44" cy="40" rx="7" ry="12" fill="#ffffff" opacity="0.12"/>
+  <!-- shoulder strap -->
+  <rect x="30" y="51" width="35" height="4" rx="1" fill="#66ee44"/>
+  <!-- forest hood -->
+  <circle cx="48" cy="22" r="15" fill="#1e5a1e"/>
+  <polygon points="48,-1 33,27 63,27" fill="#1e5a1e"/>
+  <!-- leaf crown -->
+  <polygon points="38,-3 32,9 44,9" fill="#66ee44"/>
+  <polygon points="48,-6 42,6 54,6" fill="#66ee44"/>
+  <polygon points="58,-3 52,9 64,9" fill="#66ee44"/>
+  <!-- face -->
+  <ellipse cx="48" cy="26" rx="6" ry="5" fill="#d4a87a"/>
+</svg>

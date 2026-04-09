@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+  <ellipse cx="52" cy="91" rx="29" ry="6" fill="#00000030"/>
+  <!-- bow (left) -->
+  <path d="M19,31 Q9,56 19,81" stroke="#6b3a1a" stroke-width="5" fill="none"/>
+  <!-- bowstring -->
+  <path d="M19,31 L25,56 L19,81" stroke="#d8c888" stroke-width="2" fill="none"/>
+  <!-- arrow -->
+  <line x1="25" y1="56" x2="69" y2="56" stroke="#d4aa44" stroke-width="2"/>
+  <polygon points="69,56 63,51 63,61" fill="#b0b0b0"/>
+  <!-- quiver -->
+  <rect x="62" y="32" width="9" height="27" rx="2" fill="#c87d2a"/>
+  <line x1="64" y1="22" x2="64" y2="35" stroke="#d4aa44" stroke-width="2"/>
+  <line x1="67" y1="20" x2="67" y2="33" stroke="#d4aa44" stroke-width="2"/>
+  <line x1="70" y1="22" x2="70" y2="35" stroke="#d4aa44" stroke-width="2"/>
+  <!-- body -->
+  <ellipse cx="48" cy="56" rx="17" ry="22" fill="#3a6a28"/>
+  <ellipse cx="48" cy="46" rx="13" ry="13" fill="#4a8038"/>
+  <ellipse cx="44" cy="40" rx="6" ry="9" fill="#ffffff" opacity="0.10"/>
+  <!-- hood -->
+  <circle cx="48" cy="24" r="15" fill="#245a1e"/>
+  <polygon points="48,1 34,30 62,30" fill="#245a1e"/>
+  <!-- face -->
+  <ellipse cx="48" cy="27" rx="5" ry="4" fill="#d4a87a"/>
+</svg>

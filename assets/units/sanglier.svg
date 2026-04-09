@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+  <ellipse cx="46" cy="88" rx="35" ry="7" fill="#00000022"/>
+  <!-- bristles on back -->
+  <line x1="28" y1="48" x2="28" y2="36" stroke="#2a1808" stroke-width="3"/>
+  <line x1="40" y1="44" x2="40" y2="32" stroke="#2a1808" stroke-width="3"/>
+  <line x1="52" y1="44" x2="52" y2="32" stroke="#2a1808" stroke-width="3"/>
+  <line x1="64" y1="46" x2="64" y2="34" stroke="#2a1808" stroke-width="3"/>
+  <!-- body -->
+  <ellipse cx="44" cy="61" rx="28" ry="21" fill="#4a2a10"/>
+  <ellipse cx="36" cy="54" rx="21" ry="15" fill="#5a3a18"/>
+  <!-- legs -->
+  <rect x="28" y="76" width="10" height="14" rx="2" fill="#3a2008"/>
+  <rect x="56" y="76" width="10" height="14" rx="2" fill="#3a2008"/>
+  <!-- head -->
+  <ellipse cx="68" cy="55" rx="14" ry="14" fill="#4a2a10"/>
+  <!-- snout -->
+  <ellipse cx="80" cy="57" rx="7" ry="6" fill="#5a3a20"/>
+  <!-- nostrils -->
+  <circle cx="79" cy="56" r="1.5" fill="#2a1808"/>
+  <circle cx="83" cy="56" r="1.5" fill="#2a1808"/>
+  <!-- tusks -->
+  <polygon points="72,62 66,74 78,65" fill="#fffaee"/>
+  <polygon points="82,62 78,74 90,66" fill="#fffaee"/>
+  <!-- ear -->
+  <polygon points="60,44 56,28 70,42" fill="#4a2a10"/>
+</svg>

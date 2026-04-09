@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+  <ellipse cx="52" cy="91" rx="29" ry="6" fill="#00000030"/>
+  <!-- dark cloak -->
+  <polygon points="48,81 27,33 69,33" fill="#1a1a28"/>
+  <polygon points="52,81 48,33 69,33" fill="#00000030"/>
+  <!-- leather chest -->
+  <rect x="34" y="33" width="27" height="36" rx="3" fill="#3e2e1a"/>
+  <rect x="34" y="33" width="8" height="36" fill="#ffffff" opacity="0.08"/>
+  <!-- crossed daggers -->
+  <line x1="31" y1="38" x2="65" y2="70" stroke="#d8d8d8" stroke-width="4"/>
+  <line x1="65" y1="38" x2="31" y2="70" stroke="#d8d8d8" stroke-width="4"/>
+  <rect x="44" y="52" width="8" height="2" fill="#8b6914"/>
+  <!-- dark hood -->
+  <circle cx="48" cy="23" r="15" fill="#1a1a28"/>
+  <ellipse cx="48" cy="27" rx="5" ry="4" fill="#00000080"/>
+  <!-- glinting eye -->
+  <circle cx="50" cy="23" r="2" fill="#ffaa00"/>
+</svg>

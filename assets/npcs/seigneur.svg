@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">
+  <ellipse cx="18" cy="32" rx="9" ry="3" fill="#00000022"/>
+  <!-- robe -->
+  <polygon points="18,15 9,30 27,30" fill="#5a3a8a"/>
+  <rect x="12" y="12" width="12" height="10" fill="#5a3a8a"/>
+  <!-- mini crown -->
+  <rect x="12" y="4" width="12" height="4" fill="#ffd700"/>
+  <polygon points="12,4 13.5,4 12.5,7" fill="#ffd700"/>
+  <polygon points="18,4 18,0 19.5,4" fill="#ffd700"/>
+  <polygon points="24,4 22.5,4 23.5,7" fill="#ffd700"/>
+  <!-- face -->
+  <circle cx="18" cy="9" r="4" fill="#d4a87a"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">
+  <ellipse cx="18" cy="32" rx="9" ry="3" fill="#00000022"/>
+  <!-- robe -->
+  <polygon points="18,15 9,30 27,30" fill="#d4690a"/>
+  <rect x="12" y="12" width="12" height="10" fill="#d4690a"/>
+  <!-- satchel -->
+  <rect x="21" y="19" width="5" height="5" rx="1" fill="#8b6914"/>
+  <!-- hat brim -->
+  <ellipse cx="18" cy="7" rx="8" ry="2" fill="#ffd700"/>
+  <!-- hat cone -->
+  <polygon points="18,-1 11,7 25,7" fill="#d4690a"/>
+  <!-- face -->
+  <circle cx="18" cy="9" r="4" fill="#d4a87a"/>
+</svg>

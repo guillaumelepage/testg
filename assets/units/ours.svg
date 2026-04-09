@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+  <ellipse cx="48" cy="90" rx="35" ry="7" fill="#00000022"/>
+  <!-- body -->
+  <circle cx="48" cy="58" rx="36" fill="#2a1808"/>
+  <circle cx="42" cy="51" r="29" fill="#3a2410"/>
+  <ellipse cx="48" cy="64" rx="11" ry="13" fill="#6a4a28"/>
+  <!-- paws -->
+  <circle cx="19" cy="69" r="10" fill="#2a1808"/>
+  <circle cx="77" cy="69" r="10" fill="#2a1808"/>
+  <!-- claws left -->
+  <polygon points="13,77 10,85 16,84" fill="#ccaa88"/>
+  <polygon points="19,79 16,87 22,86" fill="#ccaa88"/>
+  <polygon points="25,77 22,85 28,84" fill="#ccaa88"/>
+  <!-- claws right -->
+  <polygon points="71,77 68,85 74,84" fill="#ccaa88"/>
+  <polygon points="77,79 74,87 80,86" fill="#ccaa88"/>
+  <polygon points="83,77 80,85 86,84" fill="#ccaa88"/>
+  <!-- head -->
+  <circle cx="48" cy="27" r="20" fill="#2a1808"/>
+  <!-- ears -->
+  <circle cx="34" cy="12" r="10" fill="#2a1808"/>
+  <circle cx="62" cy="12" r="10" fill="#2a1808"/>
+  <circle cx="34" cy="12" r="6"  fill="#5a3820"/>
+  <circle cx="62" cy="12" r="6"  fill="#5a3820"/>
+  <!-- snout -->
+  <ellipse cx="48" cy="32" rx="8" ry="6" fill="#4a2808"/>
+  <ellipse cx="48" cy="30" rx="4" ry="3" fill="#1a0808"/>
+  <!-- eyes -->
+  <circle cx="40" cy="22" r="3" fill="#8a5030"/>
+  <circle cx="56" cy="22" r="3" fill="#8a5030"/>
+</svg>

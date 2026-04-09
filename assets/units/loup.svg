@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+  <ellipse cx="46" cy="88" rx="35" ry="7" fill="#00000022"/>
+  <!-- tail -->
+  <line x1="19" y1="55" x2="4" y2="38" stroke="#7a6a50" stroke-width="5"/>
+  <!-- body -->
+  <ellipse cx="46" cy="61" rx="28" ry="17" fill="#7a6a50"/>
+  <ellipse cx="38" cy="55" rx="20" ry="12" fill="#8a7a60"/>
+  <!-- legs -->
+  <rect x="28" y="72" width="10" height="15" rx="2" fill="#6a5a40"/>
+  <rect x="58" y="72" width="10" height="15" rx="2" fill="#6a5a40"/>
+  <!-- head -->
+  <ellipse cx="71" cy="52" rx="12" ry="10" fill="#7a6a50"/>
+  <!-- snout -->
+  <ellipse cx="81" cy="55" rx="6" ry="5" fill="#6a5a40"/>
+  <!-- nose -->
+  <ellipse cx="84" cy="54" rx="2" ry="1" fill="#1a1a1a"/>
+  <!-- eye -->
+  <circle cx="76" cy="49" r="2" fill="#ffc200"/>
+  <!-- ears -->
+  <polygon points="64,44 58,28 72,42" fill="#7a6a50"/>
+  <polygon points="74,42 70,28 82,38" fill="#7a6a50"/>
+  <polygon points="65,43 60,30 70,42" fill="#9a8070"/>
+</svg>

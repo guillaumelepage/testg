@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+  <!-- hero glow dots -->
+  <circle cx="94" cy="48" r="3" fill="#cc88ff"/>
+  <circle cx="48" cy="2"  r="3" fill="#cc88ff"/>
+  <circle cx="2"  cy="48" r="3" fill="#cc88ff"/>
+  <circle cx="48" cy="94" r="3" fill="#cc88ff"/>
+  <circle cx="48" cy="48" r="46" fill="none" stroke="#cc88ff" stroke-width="3" opacity="0.45"/>
+  <ellipse cx="52" cy="91" rx="29" ry="6" fill="#00000030"/>
+  <!-- staff (right behind) -->
+  <line x1="79" y1="4" x2="79" y2="83" stroke="#6b4a1a" stroke-width="5"/>
+  <!-- crystal orb -->
+  <circle cx="79" cy="6" r="9" fill="#cc88ff"/>
+  <circle cx="79" cy="6" r="9" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.7"/>
+  <circle cx="77" cy="3" r="3" fill="#ffffff" opacity="0.8"/>
+  <!-- robe (wide) -->
+  <polygon points="48,30 22,81 74,81" fill="#6a0dad"/>
+  <rect x="35" y="30" width="25" height="25" fill="#6a0dad"/>
+  <rect x="40" y="30" width="15" height="17" fill="#8a0fdd"/>
+  <rect x="37" y="30" width="6" height="48" fill="#ffffff" opacity="0.12"/>
+  <!-- runic trim -->
+  <line x1="38" y1="60" x2="58" y2="60" stroke="#cc88ff" stroke-width="2" opacity="0.70"/>
+  <line x1="38" y1="69" x2="58" y2="69" stroke="#cc88ff" stroke-width="2" opacity="0.70"/>
+  <line x1="38" y1="78" x2="58" y2="78" stroke="#cc88ff" stroke-width="2" opacity="0.70"/>
+  <!-- pointed hat -->
+  <polygon points="48,0 28,27 68,27" fill="#5a0099"/>
+  <polygon points="48,0 51,11 68,27" fill="#ffffff" opacity="0.12"/>
+  <ellipse cx="48" cy="27" rx="20" ry="5" fill="#8a0fdd"/>
+  <!-- hat star -->
+  <circle cx="48" cy="11" r="4" fill="#cc88ff"/>
+  <!-- face -->
+  <circle cx="48" cy="22" r="13" fill="#c8a870"/>
+  <!-- glowing eyes -->
+  <circle cx="44" cy="21" r="3" fill="#cc88ff"/>
+  <circle cx="52" cy="21" r="3" fill="#cc88ff"/>
+  <circle cx="43" cy="20" r="1" fill="#ffffff" opacity="0.8"/>
+  <circle cx="51" cy="20" r="1" fill="#ffffff" opacity="0.8"/>
+</svg>
