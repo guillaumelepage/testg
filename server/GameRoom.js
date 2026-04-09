@@ -280,7 +280,10 @@ class GameRoom {
   }
 
   leave(socketId) {
-    delete this.players[socketId];
+    // Keep player data in case they reconnect — just mark them disconnected
+    if (this.players[socketId]) {
+      this.players[socketId].disconnected = true;
+    }
     this.playerOrder = this.playerOrder.filter(id => id !== socketId);
   }
 
@@ -994,41 +997,75 @@ class GameRoom {
       { x: 38, y: 12 }, { x: 16, y: 32 }, { x: 62, y: 28 },
       { x: 40, y: 48 }, { x: 22, y: 50 }, { x: 60, y: 48 },
     ];
+
+    // Player base positions (both players share the same map corners)
+    const BASE1 = { x: 8, y: 6 };
+    const BASE2 = { x: MAP_WIDTH - 9, y: MAP_HEIGHT - 7 };
+
+    // Distance-based tier (1=close/easy … 5=far/hard)
+    const _tier = (vx, vy) => {
+      const d1 = Math.sqrt((vx - BASE1.x) ** 2 + (vy - BASE1.y) ** 2);
+      const d2 = Math.sqrt((vx - BASE2.x) ** 2 + (vy - BASE2.y) ** 2);
+      const d  = Math.min(d1, d2); // nearest player base
+      // Map 0…70 tiles → tier 1…5
+      if (d < 18) return 1;
+      if (d < 28) return 2;
+      if (d < 38) return 3;
+      if (d < 50) return 4;
+      return 5;
+    };
+
+    // Per-tier tower HP, guard type, guard HP, loot scale
+    const TIER_DEF = {
+      1: { towerHp: 200, guardType: 'homme_armes', guardHp: 50,  guardCount: 1, lootMul: 0.7 },
+      2: { towerHp: 280, guardType: 'homme_armes', guardHp: 70,  guardCount: 2, lootMul: 1.0 },
+      3: { towerHp: 350, guardType: 'frere_epee',  guardHp: 90,  guardCount: 2, lootMul: 1.3 },
+      4: { towerHp: 440, guardType: 'croise',      guardHp: 110, guardCount: 2, lootMul: 1.7 },
+      5: { towerHp: 550, guardType: 'garde_roi',   guardHp: 140, guardCount: 3, lootMul: 2.2 },
+    };
+
     for (const pref of prefs) {
       if (villages.length >= 4) break;
       const sp = this._findValidSpawn(pref.x, pref.y);
       // Stay clear of player starts, enemy camp, other villages
-      if (Math.abs(sp.x - 8) + Math.abs(sp.y - 6) < 16) continue;
-      if (Math.abs(sp.x - (MAP_WIDTH - 9)) + Math.abs(sp.y - (MAP_HEIGHT - 7)) < 16) continue;
+      if (Math.abs(sp.x - BASE1.x) + Math.abs(sp.y - BASE1.y) < 16) continue;
+      if (Math.abs(sp.x - BASE2.x)  + Math.abs(sp.y - BASE2.y)  < 16) continue;
       if (Math.abs(sp.x - this.enemy.campX) + Math.abs(sp.y - this.enemy.campY) < 14) continue;
       if (villages.some(v => Math.abs(v.x - sp.x) + Math.abs(v.y - sp.y) < 16)) continue;
 
-      const vid = `village_${villages.length}`;
+      const vid  = `village_${villages.length}`;
+      const tier = _tier(sp.x, sp.y);
+      const def  = TIER_DEF[tier];
+
       villages.push({
-        id: vid, x: sp.x, y: sp.y,
-        hp: 300, maxHp: 300, capturedBy: null,
+        id: vid, x: sp.x, y: sp.y, level: tier,
+        hp: def.towerHp, maxHp: def.towerHp, capturedBy: null,
         loot: {
-          wood:  100 + Math.floor(rand() * 150),
-          stone:  40 + Math.floor(rand() * 100),
-          gold:   25 + Math.floor(rand() * 80),
-          food:   80 + Math.floor(rand() * 120),
+          wood:  Math.floor((100 + Math.floor(rand() * 150)) * def.lootMul),
+          stone: Math.floor(( 40 + Math.floor(rand() * 100)) * def.lootMul),
+          gold:  Math.floor(( 25 + Math.floor(rand() *  80)) * def.lootMul),
+          food:  Math.floor(( 80 + Math.floor(rand() * 120)) * def.lootMul),
         },
         shotTimer: Math.floor(rand() * 5),
-        shotCooldown: 5, arrowRange: 6, arrowDamage: 18,
+        shotCooldown: 5, arrowRange: 6, arrowDamage: 18 + (tier - 1) * 4,
       });
 
-      // 2 guards patrol near village
-      for (const off of [{ dx: 2, dy: 0 }, { dx: -1, dy: 2 }]) {
+      // Guards (count and type depend on tier)
+      const guardOffsets = [{ dx: 2, dy: 0 }, { dx: -1, dy: 2 }, { dx: 2, dy: -1 }];
+      let placed = 0;
+      for (const off of guardOffsets) {
+        if (placed >= def.guardCount) break;
         const gx = Math.max(1, Math.min(MAP_WIDTH - 2, sp.x + off.dx));
         const gy = Math.max(1, Math.min(MAP_HEIGHT - 2, sp.y + off.dy));
         if (this.map[gy]?.[gx] === T.WATER || this.map[gy]?.[gx] === T.MOUNTAIN) continue;
         this.shared.units.push({
-          id: this._nextId(), type: 'homme_armes', x: gx, y: gy,
-          owner: 'neutral', hp: 60, maxHp: 60, moves: [], reward: 20,
+          id: this._nextId(), type: def.guardType, x: gx, y: gy,
+          owner: 'neutral', hp: def.guardHp, maxHp: def.guardHp, moves: [], reward: 15 + tier * 8,
           gatherState: 'idle', targetResource: null,
           inventory: 0, inventoryMax: 0, inventoryType: null,
           villageGuard: vid, homeX: sp.x, homeY: sp.y,
         });
+        placed++;
       }
 
       // 1 house adjacent to village tower
@@ -1166,7 +1203,25 @@ class GameRoom {
     for (const u of this.shared.units) {
       if (u.siegeTarget === village.id) u.siegeTarget = null;
     }
+    // Transfer buildings inside the village's territory to the player
+    this._transferVillageBuildings(village, 'player');
     this._pendingEvents.push({ type: 'village_captured', villageId: village.id, loot: village.loot });
+  }
+
+  // Transfer ownership of buildings in this village's radius
+  // newOwner: 'player' (captured) or 'neutral' (recaptured by enemy, future use)
+  _transferVillageBuildings(village, newOwner) {
+    const VILLAGE_R = 16;
+    for (const bld of this.shared.buildings) {
+      if (bld.owner === 'enemy') continue; // enemy buildings stay as-is
+      const dist = Math.abs(bld.x - village.x) + Math.abs(bld.y - village.y);
+      if (dist <= VILLAGE_R) {
+        // Neutral village buildings → transfer to player; player buildings nearby stay as-is
+        if (bld.owner === 'neutral' || (newOwner === 'neutral' && bld.owner === 'shared')) {
+          bld.owner = newOwner === 'player' ? 'shared' : 'neutral';
+        }
+      }
+    }
   }
 
   // Each tick: units adjacent to their siege target attack the tower

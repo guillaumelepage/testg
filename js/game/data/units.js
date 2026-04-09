@@ -110,6 +110,76 @@ export const UNIT_STATS = {
       { name: 'Terreur Absolue',         moveType: 'MAGIE',     power: 55, desc: 'Énergie maudite dévastatrice.' },
     ],
   },
+
+  // ── Héros ──────────────────────────────────────────────────────────────────
+  roi_guerrier: {
+    label: 'Roi Guerrier', faction: 'La Cour Royale',
+    maxHp: 220, atk: 42, def: 38, spd: 14,
+    color: 0xb8860b, accentColor: 0xffd700,
+    moves: [
+      { name: 'Frappe Royale',  moveType: 'LOURD', power: 45, desc: 'Coup de majesté dévastateur.' },
+      { name: 'Décret Martial', moveType: 'LOURD', power: 35, desc: 'Attaque commandée.' },
+      { name: 'Garde du Trône', moveType: 'LOURD', power: 15, desc: 'Position défensive.' },
+      { name: 'Exécution',      moveType: 'LOURD', power: 60, desc: 'Frappe finale puissante.' },
+    ],
+  },
+  chasseresse: {
+    label: 'Chasseresse', faction: 'Les Forestières',
+    maxHp: 160, atk: 50, def: 22, spd: 28,
+    color: 0x2d7a2d, accentColor: 0x88ff44,
+    moves: [
+      { name: 'Tir de Précision', moveType: 'LEGER', power: 52, desc: 'Vise le point faible.' },
+      { name: 'Pluie de Traits',  moveType: 'LEGER', power: 32, desc: 'Multiples flèches rapides.' },
+      { name: 'Piège Forestier',  moveType: 'LEGER', power: 28, desc: 'Ralentit la cible.' },
+      { name: 'Flèche Enflammée', moveType: 'MAGIE', power: 42, desc: 'Brûle la cible.' },
+    ],
+  },
+  mage_arcane: {
+    label: 'Mage Arcane', faction: 'L\'Ordre Arcanique',
+    maxHp: 140, atk: 58, def: 15, spd: 18,
+    color: 0x6a0dad, accentColor: 0xcc88ff,
+    moves: [
+      { name: 'Éclair Arcane',  moveType: 'MAGIE', power: 55, desc: 'Foudre magique concentrée.' },
+      { name: 'Boule de Feu',   moveType: 'MAGIE', power: 48, desc: 'Explosif et dévastateur.' },
+      { name: 'Gel Temporel',   moveType: 'MAGIE', power: 30, desc: 'Ralentit et endommage.' },
+      { name: 'Nova Arcanique', moveType: 'MAGIE', power: 65, desc: 'Explosion magique ultime.' },
+    ],
+  },
+
+  // ── Mobs neutres ───────────────────────────────────────────────────────────
+  loup: {
+    label: 'Loup Sauvage', faction: 'Faune',
+    maxHp: 25, atk: 15, def: 5, spd: 20,
+    color: 0x556644, accentColor: 0xaaaaaa,
+    moves: [
+      { name: 'Morsure',        moveType: 'LEGER', power: 12, desc: 'Mord violemment.' },
+      { name: 'Griffe',         moveType: 'LEGER', power: 10, desc: 'Lacère de ses griffes.' },
+      { name: 'Charge de Meute',moveType: 'LEGER', power: 14, desc: 'Attaque coordonnée.' },
+      { name: 'Hurlement',      moveType: 'LEGER', power: 8,  desc: 'Déstabilise l\'adversaire.' },
+    ],
+  },
+  sanglier: {
+    label: 'Sanglier', faction: 'Faune',
+    maxHp: 40, atk: 18, def: 10, spd: 14,
+    color: 0x5a3a1a, accentColor: 0xddaa66,
+    moves: [
+      { name: 'Charge Sauvage', moveType: 'CAVALERIE', power: 16, desc: 'Percute de plein fouet.' },
+      { name: 'Coup de Défense',moveType: 'CAVALERIE', power: 12, desc: 'Frappe avec ses défenses.' },
+      { name: 'Ruée',           moveType: 'CAVALERIE', power: 18, desc: 'Fonce sans s\'arrêter.' },
+      { name: 'Piétinement',    moveType: 'CAVALERIE', power: 10, desc: 'Écrase sous son poids.' },
+    ],
+  },
+  ours: {
+    label: 'Ours des Bois', faction: 'Faune',
+    maxHp: 65, atk: 22, def: 15, spd: 10,
+    color: 0x5a3a20, accentColor: 0xc08840,
+    moves: [
+      { name: 'Griffe',         moveType: 'LOURD', power: 20, desc: 'Lacère profondément.' },
+      { name: 'Morsure Féroce', moveType: 'LOURD', power: 18, desc: 'Mâchoire implacable.' },
+      { name: 'Charge Lourde',  moveType: 'LOURD', power: 22, desc: 'Écrase de tout son poids.' },
+      { name: 'Rugissement',    moveType: 'LOURD', power: 8,  desc: 'Intimide l\'adversaire.' },
+    ],
+  },
 };
 
 // Type effectiveness chart (attacker type -> defender type -> multiplier)
@@ -121,6 +191,7 @@ export const TYPE_CHART = {
 };
 
 export const UNIT_MOVE_TYPE = {
+  // Unités de combat
   chevalier: 'CAVALERIE',
   garde_roi: 'LOURD',
   homme_armes: 'LOURD',
@@ -131,6 +202,14 @@ export const UNIT_MOVE_TYPE = {
   frere_epee: 'LOURD',
   paysan: 'LEGER',
   tyran: 'LOURD',
+  // Héros
+  roi_guerrier: 'LOURD',
+  chasseresse: 'LEGER',
+  mage_arcane: 'MAGIE',
+  // Mobs neutres
+  loup: 'LEGER',
+  sanglier: 'CAVALERIE',
+  ours: 'LOURD',
 };
 
 // Units available to train per building type

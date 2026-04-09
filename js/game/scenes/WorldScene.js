@@ -752,29 +752,36 @@ export class WorldScene extends Phaser.Scene {
   _spawnVillage(village) {
     const wx = village.x * TILE_SIZE + TILE_SIZE / 2;
     const wy = village.y * TILE_SIZE + TILE_SIZE / 2;
+    const captured = !!village.capturedBy;
+
+    // Enemy villages start hidden until the player's fog reveals them
+    const vis = captured || this._tileVisible(village.x, village.y);
 
     // Region ring (territory that becomes buildable on capture)
-    const ring = this.add.graphics().setDepth(0.5);
-    this._drawVillageRing(ring, wx, wy, !!village.capturedBy);
+    const ring = this.add.graphics().setDepth(0.5).setVisible(vis);
+    this._drawVillageRing(ring, wx, wy, captured);
 
     // Tower sprite
-    const tower = this.add.image(wx, wy, village.capturedBy ? 'village_tower_cap' : 'village_tower')
-      .setOrigin(0.5).setDepth(village.y + 0.8).setDisplaySize(72, 72);
+    const tower = this.add.image(wx, wy, captured ? 'village_tower_cap' : 'village_tower')
+      .setOrigin(0.5).setDepth(village.y + 0.8).setDisplaySize(72, 72).setVisible(vis);
 
     // HP bar (hidden when captured)
     const barW = 56;
     const hpBg = this.add.rectangle(wx, wy - 44, barW, 7, 0x330000)
-      .setDepth(village.y + 1).setVisible(!village.capturedBy);
+      .setDepth(village.y + 1).setVisible(vis && !captured);
     const hpFill = this.add.rectangle(wx - barW / 2, wy - 44, barW * (village.hp / village.maxHp), 7, 0xcc2222)
-      .setOrigin(0, 0.5).setDepth(village.y + 1).setVisible(!village.capturedBy);
+      .setOrigin(0, 0.5).setDepth(village.y + 1).setVisible(vis && !captured);
+
+    // Level indicator (Niv. X) only shown for enemy villages
+    const lvlStr = !captured && village.level ? ` Niv.${village.level}` : '';
 
     // Label
     const lbl = this.add.text(wx, wy - 56,
-      village.capturedBy ? '✦ Village allié' : '⚔ Village ennemi', {
+      captured ? '✦ Village allié' : `⚔ Village ennemi${lvlStr}`, {
         fontFamily: 'sans-serif', fontSize: '10px',
-        color: village.capturedBy ? '#ffd700' : '#ff6644',
+        color: captured ? '#ffd700' : '#ff6644',
         backgroundColor: '#00000088', padding: { x: 3, y: 2 },
-      }).setOrigin(0.5).setDepth(village.y + 1);
+      }).setOrigin(0.5).setDepth(village.y + 1).setVisible(vis);
 
     this.villageObjects.set(village.id, { ring, tower, hpBg, hpFill, lbl });
   }
@@ -793,6 +800,14 @@ export class WorldScene extends Phaser.Scene {
       const objs = this.villageObjects.get(village.id);
       if (!objs) { this._spawnVillage(village); continue; }
 
+      const captured = !!village.capturedBy;
+      const vis = captured || this._tileVisible(village.x, village.y);
+
+      // Show/hide all parts based on fog visibility
+      objs.tower?.setVisible(vis);
+      objs.ring?.setVisible(vis);
+      objs.lbl?.setVisible(vis);
+
       if (village.capturedBy) {
         // Update to captured state (only once)
         if (objs.tower?.active && objs.tower.texture?.key !== 'village_tower_cap') {
@@ -805,12 +820,22 @@ export class WorldScene extends Phaser.Scene {
           if (objs.lbl?.active) objs.lbl.setText('✦ Village allié').setColor('#ffd700');
         }
       } else {
-        // Update HP bar
-        const barW = 56;
-        const pct = village.hp / village.maxHp;
-        objs.hpFill.setDisplaySize(Math.max(1, barW * pct), 7);
-        const col = pct > 0.5 ? 0x22cc22 : pct > 0.25 ? 0xddaa00 : 0xcc2222;
-        objs.hpFill.setFillStyle(col);
+        // Show HP bar only when visible
+        objs.hpBg?.setVisible(vis);
+        objs.hpFill?.setVisible(vis);
+
+        if (vis) {
+          // Update HP bar
+          const barW = 56;
+          const pct = village.hp / village.maxHp;
+          objs.hpFill.setDisplaySize(Math.max(1, barW * pct), 7);
+          const col = pct > 0.5 ? 0x22cc22 : pct > 0.25 ? 0xddaa00 : 0xcc2222;
+          objs.hpFill.setFillStyle(col);
+
+          // Update label with level info (in case it wasn't visible before)
+          const lvlStr = village.level ? ` Niv.${village.level}` : '';
+          if (objs.lbl?.active) objs.lbl.setText(`⚔ Village ennemi${lvlStr}`);
+        }
       }
     }
   }
@@ -1133,14 +1158,14 @@ export class WorldScene extends Phaser.Scene {
     // Sync SDF adults on map
     this._syncSdfCitizens(shared.population || []);
 
-    // Update villages
-    this._syncVillages();
-
     // Update dungeons
     this._syncDungeons();
 
-    // Update fog of war
+    // Update fog of war (must run before villages so _tileVisible is up to date)
     this._updateFog();
+
+    // Update villages (visibility depends on fog state)
+    this._syncVillages();
   }
 
   // ─── Fog of war ───────────────────────────────────────────────────────────
@@ -1173,22 +1198,33 @@ export class WorldScene extends Phaser.Scene {
         : (UNIT_VISION[unit.type] ?? 3);
       this._addTilesInRadius(visible, unit.x, unit.y, r);
     }
+    // Captured villages reveal a large area around them
+    for (const village of (this.shared.villages || [])) {
+      if (village.capturedBy) {
+        this._addTilesInRadius(visible, village.x, village.y, 6);
+      }
+    }
     for (const key of visible) this.visitedTiles.add(key);
     return visible;
   }
 
   _updateFog() {
-    const visible = this._computeVisibility();
+    this._lastVisible = this._computeVisibility();
     this.fogGfx.clear();
     for (let y = 0; y < MAP_H; y++) {
       for (let x = 0; x < MAP_W; x++) {
         const key = `${x},${y}`;
-        if (visible.has(key)) continue;
+        if (this._lastVisible.has(key)) continue;
         const alpha = this.visitedTiles.has(key) ? 0.58 : 1.0;
         this.fogGfx.fillStyle(0x000000, alpha);
         this.fogGfx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
       }
     }
+  }
+
+  // Returns true if the tile (tx,ty) is currently visible (not in fog)
+  _tileVisible(tx, ty) {
+    return this._lastVisible?.has(`${tx},${ty}`) || false;
   }
 
   // ─── Walk helpers ─────────────────────────────────────────────────────────
