@@ -313,16 +313,18 @@ export class UIScene extends Phaser.Scene {
 
   // ─── Building info panel ───────────────────────────────────────────────────
 
-  showBuildingPanel(building, onTrain) {
+  showBuildingPanel(building, onTrain, popInfo = null) {
     this.hidePanel();
     const data = BUILDING_DATA[building.type] || {};
     const { width: W, height: H } = this.cameras.main;
     const px = W - PANEL_W - 10;
-    const py = H - (data.produces?.length ? 90 + data.produces.length * 48 + 8 : 120) - 10;
-
+    const isHouse = building.type === 'house';
     const produces = data.produces || [];
     const rowH = 48;
-    const dynPanelH = produces.length ? 90 + produces.length * rowH + 8 : 120;
+    const extraH = isHouse ? 52 : 0;
+    const dynPanelH = (produces.length ? 90 + produces.length * rowH + 8 : 120) + extraH;
+    const py = H - dynPanelH - 10;
+
     const items = [];
     const bg = this.add.rectangle(px + PANEL_W / 2, py + dynPanelH / 2, PANEL_W, dynPanelH, 0x1a0f05, 0.92)
       .setStrokeStyle(2, 0xc8960c, 0.7);
@@ -336,28 +338,56 @@ export class UIScene extends Phaser.Scene {
       wordWrap: { width: PANEL_W - 20 },
     }));
 
+    let contentY = py + 54;
+
+    // ── House population info ─────────────────────────────────────────────────
+    if (isHouse && popInfo) {
+      const childAge = popInfo.child?.age || 0;
+      const childPct = Math.min(1, childAge / 320); // 320 = ADULT_TICKS
+      const childStr = popInfo.child
+        ? `👶 Enfant : ${Math.floor(childPct * 16)} ans  (${Math.round(childPct * 100)}%)`
+        : '— Pas d\'enfant (couple en attente)';
+      items.push(this.add.text(px + 10, contentY, `👫 Habitants: ${popInfo.residents}/2`, {
+        fontFamily: 'monospace', fontSize: '11px', color: '#d4c090',
+      }));
+      items.push(this.add.text(px + 10, contentY + 16, childStr, {
+        fontFamily: 'monospace', fontSize: '10px', color: popInfo.child ? '#ffccaa' : '#666644',
+      }));
+      if (popInfo.child) {
+        const barW = PANEL_W - 20;
+        items.push(this.add.rectangle(px + 10 + barW / 2, contentY + 34, barW, 6, 0x331100));
+        items.push(this.add.rectangle(px + 10, contentY + 34, Math.max(2, barW * childPct), 6, 0xff8833).setOrigin(0, 0.5));
+      }
+      contentY += extraH;
+    }
+
     if (produces.length) {
-      items.push(this.add.text(px + 10, py + 62, 'Entraîner :', {
-        fontFamily: 'sans-serif', fontSize: '12px', color: '#c8a060',
+      const availLabel = popInfo ? `  (${popInfo.availableAdults} hab. dispo)` : '';
+      items.push(this.add.text(px + 10, contentY, `Entraîner :${availLabel}`, {
+        fontFamily: 'sans-serif', fontSize: '12px',
+        color: popInfo?.availableAdults > 0 ? '#c8a060' : '#886644',
       }));
       produces.forEach((unitType, i) => {
         const us = UNIT_STATS[unitType];
         const cost = UNIT_COSTS[unitType] || {};
         const costStr = Object.entries(cost).map(([k, v]) => `${v}${k[0].toUpperCase()}`).join(' ');
-        const rowY = py + 82 + i * rowH;
-        const btnBg = this.add.rectangle(px + PANEL_W / 2, rowY + rowH / 2 - 4, PANEL_W - 20, rowH - 6, 0x2a1a06, 0.9)
-          .setInteractive({ useHandCursor: true })
-          .setStrokeStyle(1, 0x886630, 0.8);
-        btnBg.on('pointerover', () => btnBg.setStrokeStyle(2, 0xffd700));
-        btnBg.on('pointerout', () => btnBg.setStrokeStyle(1, 0x886630, 0.8));
-        btnBg.on('pointerdown', () => onTrain(unitType));
-
+        const rowY = contentY + 18 + i * rowH;
+        const canTrain = !popInfo || popInfo.availableAdults > 0;
+        const btnBg = this.add.rectangle(px + PANEL_W / 2, rowY + rowH / 2 - 4, PANEL_W - 20, rowH - 6,
+          canTrain ? 0x2a1a06 : 0x1a0f0f, 0.9)
+          .setStrokeStyle(1, canTrain ? 0x886630 : 0x553322, 0.8);
+        if (canTrain) {
+          btnBg.setInteractive({ useHandCursor: true });
+          btnBg.on('pointerover', () => btnBg.setStrokeStyle(2, 0xffd700));
+          btnBg.on('pointerout', () => btnBg.setStrokeStyle(1, 0x886630, 0.8));
+          btnBg.on('pointerdown', () => onTrain(unitType));
+        }
         items.push(btnBg);
         items.push(this.add.text(px + 16, rowY + 6, us?.label || unitType, {
-          fontFamily: 'serif', fontSize: '13px', color: '#d4c090',
+          fontFamily: 'serif', fontSize: '13px', color: canTrain ? '#d4c090' : '#665544',
         }));
         items.push(this.add.text(px + PANEL_W - 30, rowY + 6, costStr, {
-          fontFamily: 'monospace', fontSize: '10px', color: '#c8960c',
+          fontFamily: 'monospace', fontSize: '10px', color: canTrain ? '#c8960c' : '#664422',
         }).setOrigin(1, 0));
         items.push(this.add.text(px + 16, rowY + 24, `HP:${us?.maxHp} ATK:${us?.atk} DEF:${us?.def}`, {
           fontFamily: 'monospace', fontSize: '9px', color: '#666644',

@@ -45,15 +45,18 @@ setInterval(() => {
     const buildChanged   = room.tickConstruction();
     const regenChanged   = room.tickResourceRegen();
     const aiChanged      = room.tickEnemyAI();
+    const timedChanged   = room.tickTimedEffects();
+    const popChanged     = room.tickPopulation();
     const mobChanged     = room.tickNeutralMobs();
     const villageChanged = room.tickVillageTowers() | room.tickVillageSiege();
+    const eventChanged   = room.tickRandomEvents();
 
     // Flush pending events (arrow shots, captures…)
     for (const ev of room._pendingEvents.splice(0)) {
       io.to(code).emit(ev.type, ev);
     }
 
-    if (moveChanged || gatherChanged || buildChanged || regenChanged || aiChanged || mobChanged || villageChanged) {
+    if (moveChanged || gatherChanged || buildChanged || regenChanged || aiChanged || mobChanged || villageChanged || eventChanged || timedChanged || popChanged) {
       io.to(code).emit('state_update', { shared: room.shared });
     }
   }
@@ -146,9 +149,11 @@ io.on('connection', (socket) => {
     const result = room.handleAction(socket.id, action);
     if (!result) return;
 
-    // NPC_INTERACT is private — send only to the initiating player
+    // NPC_INTERACT and ERROR are private — send only to the initiating player
     if (result.type === 'NPC_INTERACT') {
       socket.emit('npc_interact', result);
+    } else if (result.type === 'ERROR') {
+      socket.emit('action_error', result);
     } else {
       io.to(code).emit(result.type.toLowerCase(), result);
     }

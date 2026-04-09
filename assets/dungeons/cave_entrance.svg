@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+  <!-- rocky frame -->
+  <rect x="4" y="10" width="40" height="34" rx="2" fill="#5a4e40"/>
+  <!-- cave arch opening -->
+  <ellipse cx="24" cy="28" rx="13" ry="17" fill="#0d0a08"/>
+  <!-- arch top rocks -->
+  <polygon points="11,28 7,18 11,14 16,20 20,14 24,10 28,14 32,20 37,14 41,18 37,28" fill="#6a5e50"/>
+  <!-- inner darkness gradient hint -->
+  <ellipse cx="24" cy="32" rx="9" ry="12" fill="#080604"/>
+  <!-- rock highlights -->
+  <polygon points="7,18 11,14 13,17" fill="#8a7868"/>
+  <polygon points="37,14 41,18 39,17" fill="#8a7868"/>
+  <!-- ground line -->
+  <rect x="4" y="42" width="40" height="4" rx="1" fill="#4a3e30"/>
+  <!-- purple glow inside -->
+  <ellipse cx="24" cy="30" rx="5" ry="6" fill="#4a1a6a" opacity="0.5"/>
+  <!-- skull or rune hint -->
+  <circle cx="24" cy="30" r="3" fill="none" stroke="#7a3aaa" stroke-width="1" opacity="0.7"/>
+</svg>

@@ -44,6 +44,8 @@ export class WorldScene extends Phaser.Scene {
     this.resourceObjects = new Map();
     this.npcObjects = new Map();
     this.villageObjects = new Map();
+    this.dungeonObjects = new Map();
+    this.sdfObjects = new Map();
     this.visitedTiles = new Set(); // fog of war memory
     this.mySocketId = socketManager.socket?.id;
     // Store own player info for reconnection (socket ID may change on reconnect)
@@ -200,6 +202,8 @@ export class WorldScene extends Phaser.Scene {
       .on('npc_interact',      (data) => this._showNpcDialogue(data.npc, data.heroId))
       .on('village_captured',  (data) => this._onVillageCaptured(data))
       .on('arrow_shot',        (data) => this._showArrowShot(data))
+      .on('random_event',      (data) => this.scene.get('UI')?.showMessage(data.message, data.color))
+      .on('action_error',      (data) => this.scene.get('UI')?.showMessage(data.message, 0xff4444))
       .on('connected',         ()     => this._onReconnected())
       .on('disconnected',      ()     => this.scene.get('UI')?.showMessage('⚠ Connexion perdue…', 0xff4444));
 
@@ -431,7 +435,14 @@ export class WorldScene extends Phaser.Scene {
     // NPC at tile? (hero must be selected to interact)
     const npc = (this.shared.npcs || []).find(n => n.x === tx && n.y === ty);
     if (npc && this.selectedUnit?.isHero) {
-      socketManager.sendAction({ type: 'INTERACT_NPC', npcId: npc.id });
+      const hero = this.selectedUnit;
+      const dist = Math.abs(tx - hero.x) + Math.abs(ty - hero.y);
+      const walkMs = this._walkMs(hero, dist);
+      // Walk to NPC first, then interact
+      if (dist > 0) socketManager.sendAction({ type: 'MOVE_UNIT', unitId: hero.id, tx, ty });
+      this._animWalkTo(hero.id, tx, ty, walkMs);
+      this.time.delayedCall(walkMs, () => socketManager.sendAction({ type: 'INTERACT_NPC', npcId: npc.id }));
+      this._deselectAll();
       return;
     }
 
@@ -439,8 +450,12 @@ export class WorldScene extends Phaser.Scene {
     const unit = this.shared.units.find(u => u.x === tx && u.y === ty);
     if (unit) {
       if (this.selectedUnit && (unit.owner === 'enemy' || unit.owner === 'neutral')) {
-        // Attack — move selected unit toward enemy/mob
-        socketManager.sendAction({ type: 'MOVE_UNIT', unitId: this.selectedUnit.id, tx, ty });
+        // Attack — move selected unit toward enemy/mob, delay battle until unit arrives
+        const attacker = this.selectedUnit;
+        const dist = Math.abs(tx - attacker.x) + Math.abs(ty - attacker.y);
+        const walkMs = this._walkMs(attacker, dist);
+        socketManager.sendAction({ type: 'MOVE_UNIT', unitId: attacker.id, tx, ty });
+        this._pendingBattleWalk = { unitId: attacker.id, tx, ty, walkMs, sentAt: Date.now() };
         this._deselectAll();
       } else if (unit.owner === 'player') {
         this._selectUnit(unit);
@@ -506,9 +521,16 @@ export class WorldScene extends Phaser.Scene {
   _selectBuilding(building) {
     this._deselectAll();
     this.selectedBuilding = building;
+    const pop = this.shared.population || [];
+    const popInfo = {
+      residents:      pop.filter(c => !c.isChild && c.houseId === building.id).length,
+      child:          pop.find(c => c.isChild && c.birthHouseId === building.id) || null,
+      availableAdults: pop.filter(c => !c.isChild && c.houseId && !c.deployed).length,
+      sdfCount:       pop.filter(c => !c.isChild && !c.houseId && !c.deployed).length,
+    };
     this.scene.get('UI')?.showBuildingPanel(building, (unitType) => {
       socketManager.sendAction({ type: 'TRAIN_UNIT', buildingId: building.id, unitType });
-    });
+    }, popInfo);
   }
 
   _deselectAll() {
@@ -792,6 +814,81 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  _syncSdfCitizens(population) {
+    const sdfAdults = population.filter(c => !c.isChild && !c.houseId && !c.deployed);
+    const seenIds = new Set(sdfAdults.map(c => c.id));
+
+    // Spawn new SDF objects
+    for (const cit of sdfAdults) {
+      if (!this.sdfObjects.has(cit.id)) {
+        const wx = (cit.x || 8) * TILE_SIZE + TILE_SIZE / 2;
+        const wy = (cit.y || 6) * TILE_SIZE + TILE_SIZE / 2;
+        const img = this.add.image(wx, wy, 'unit_paysan')
+          .setTint(0xff6600).setDisplaySize(32, 32).setDepth(5);
+        const badge = this.add.text(wx, wy - 22, 'SDF', {
+          fontFamily: 'monospace', fontSize: '9px', color: '#ff4400',
+          stroke: '#000000', strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(6);
+        // Urgency bar (sdfTimer / SDF_TIMEOUT)
+        const barBg = this.add.rectangle(wx, wy + 20, 32, 4, 0x330000).setDepth(6);
+        const barFill = this.add.rectangle(wx - 16, wy + 20, 1, 4, 0xff4400).setOrigin(0, 0.5).setDepth(7);
+        this.sdfObjects.set(cit.id, { img, badge, barBg, barFill, cit });
+      }
+      // Update urgency bar (sdfTimer visible)
+      const objs = this.sdfObjects.get(cit.id);
+      if (objs) {
+        const pct = Math.min(1, (cit.sdfTimer || 0) / 90);
+        objs.barFill.setDisplaySize(32 * pct, 4);
+        objs.barFill.setFillStyle(pct > 0.6 ? 0xcc2200 : 0xff8800);
+      }
+    }
+
+    // Remove citizens who are no longer SDF
+    for (const [id, objs] of this.sdfObjects) {
+      if (!seenIds.has(id)) {
+        objs.img.destroy(); objs.badge.destroy(); objs.barBg.destroy(); objs.barFill.destroy();
+        this.sdfObjects.delete(id);
+      }
+    }
+  }
+
+  _syncDungeons() {
+    for (const dungeon of (this.shared.dungeons || [])) {
+      if (!this.dungeonObjects.has(dungeon.id)) {
+        const wx = dungeon.x * TILE_SIZE + TILE_SIZE / 2;
+        const wy = dungeon.y * TILE_SIZE + TILE_SIZE / 2;
+        const img = this.add.image(wx, wy, 'cave_entrance')
+          .setDisplaySize(TILE_SIZE, TILE_SIZE).setDepth(3)
+          .setInteractive({ useHandCursor: true });
+        const lbl = this.add.text(wx, wy - 30, dungeon.artifact?.name || 'Donjon', {
+          fontFamily: 'Georgia, serif', fontSize: '10px', color: '#cc88ff',
+          stroke: '#000000', strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(4);
+        img.on('pointerdown', () => this._clickDungeon(dungeon));
+        this.dungeonObjects.set(dungeon.id, { img, lbl });
+      }
+      const objs = this.dungeonObjects.get(dungeon.id);
+      if (dungeon.cleared) {
+        objs.img.setAlpha(0.3);
+        objs.lbl.setText('Exploré').setColor('#666644');
+      }
+    }
+  }
+
+  _clickDungeon(dungeon) {
+    if (dungeon.cleared) {
+      this.scene.get('UI')?.showMessage('Ce donjon a déjà été exploré.', 0x666644);
+      return;
+    }
+    if (!this.selectedUnit) {
+      this.scene.get('UI')?.showMessage('Sélectionnez une unité pour explorer le donjon', 0x8855cc);
+      return;
+    }
+    socketManager.sendAction({ type: 'ENTER_DUNGEON', dungeonId: dungeon.id, unitId: this.selectedUnit.id });
+    this.scene.get('UI')?.showMessage(`⚔ ${this.selectedUnit.type} entre dans le donjon…`, 0x8855cc);
+    this._deselectAll();
+  }
+
   _onVillageCaptured(data) {
     const loot = data.loot || {};
     const parts = Object.entries(loot).map(([k, v]) => `${v} ${k[0].toUpperCase()}`).join('  ');
@@ -1037,8 +1134,14 @@ export class WorldScene extends Phaser.Scene {
       }
     }
 
+    // Sync SDF adults on map
+    this._syncSdfCitizens(shared.population || []);
+
     // Update villages
     this._syncVillages();
+
+    // Update dungeons
+    this._syncDungeons();
 
     // Update fog of war
     this._updateFog();
@@ -1092,7 +1195,50 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  // ─── Walk helpers ─────────────────────────────────────────────────────────
+
+  // ms to walk `dist` tiles for this unit (heroes faster, paysans slower)
+  _walkMs(unit, dist) {
+    const SPEEDS = { roi_guerrier: 1.8, chasseresse: 1.8, mage_arcane: 1.8,
+                     chevalier: 1.4, homme_armes: 1.4, garde_roi: 1.4,
+                     croise: 1.4, frere_epee: 1.4, compagnie_loup: 1.4,
+                     archer: 1.2, mercenaire: 1.2 };
+    const speed = SPEEDS[unit?.type] || 1.0;
+    return Math.max(200, Math.min(dist, 5) * Math.round(220 / speed));
+  }
+
+  // Immediately tween the unit sprite toward (tx, ty) over walkMs
+  _animWalkTo(unitId, tx, ty, walkMs) {
+    const obj = this.unitObjects.get(unitId);
+    if (!obj || walkMs <= 0) return;
+    this.tweens.killTweensOf(obj);
+    this.tweens.add({
+      targets: obj,
+      x: tx * TILE_SIZE + TILE_SIZE / 2,
+      y: ty * TILE_SIZE + TILE_SIZE / 2,
+      duration: walkMs,
+      ease: 'Linear',
+    });
+  }
+
   _enterBattle(battle) {
+    const pending = this._pendingBattleWalk;
+    this._pendingBattleWalk = null;
+
+    if (pending) {
+      const elapsed  = Date.now() - pending.sentAt;
+      const remaining = Math.max(0, pending.walkMs - elapsed);
+      // Animate unit walking to target before entering battle
+      this._animWalkTo(pending.unitId, pending.tx, pending.ty, remaining);
+      if (remaining > 0) {
+        this.time.delayedCall(remaining, () => this._doEnterBattle(battle));
+        return;
+      }
+    }
+    this._doEnterBattle(battle);
+  }
+
+  _doEnterBattle(battle) {
     this.scene.launch('Battle', { battle, worldScene: this });
     this.scene.pause('World');
   }

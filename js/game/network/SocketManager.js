@@ -25,7 +25,7 @@ class SocketManager {
     const events = [
       'game_start', 'state_update', 'battle_start', 'battle_update',
       'battle_end', 'player_left', 'player_joined', 'npc_interact', 'error',
-      'village_captured', 'arrow_shot',
+      'village_captured', 'arrow_shot', 'dungeon_next_room', 'random_event', 'action_error',
     ];
     for (const ev of events) {
       this.socket.on(ev, (data) => this._emit(ev, data));
@@ -39,6 +39,11 @@ class SocketManager {
 
   on(event, fn) {
     this.handlers[event] = fn;
+    return this;
+  }
+
+  off(event) {
+    delete this.handlers[event];
     return this;
   }
 

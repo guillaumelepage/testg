@@ -81,6 +81,8 @@ export class BootScene extends Phaser.Scene {
     }
     // UI
     this.load.image('selection_ring', 'assets/ui/selection_ring.svg');
+    // Dungeons
+    this.load.image('cave_entrance', 'assets/dungeons/cave_entrance.svg');
   }
 
 
@@ -118,5 +120,18 @@ export class BootScene extends Phaser.Scene {
     for (const k of mobKeys) {
       makeWorld(`battle_${k}`, `unit_${k}`);
     }
+
+    // Boss tyran reuses garde_roi_enemy sprite (scaled up slightly for intimidation)
+    const makeBoss = (srcKey, dstKey) => {
+      const rt = this.add.renderTexture(0, 0, 96, 96);
+      const img = this.make.image({ key: srcKey, add: false });
+      img.setScale(1.15);
+      rt.draw(img, 48, 48);
+      rt.saveTexture(dstKey);
+      img.destroy(); rt.destroy();
+    };
+    makeBoss('battle_garde_roi_enemy', 'battle_tyran');
+    makeBoss('battle_garde_roi_enemy', 'battle_tyran_enemy');
+    makeWorld('battle_tyran', 'unit_tyran');
   }
 }

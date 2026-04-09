@@ -99,6 +99,17 @@ export const UNIT_STATS = {
       { name: 'Fuite !', moveType: 'LEGER', power: 0, desc: 'Abandonne le combat.' },
     ],
   },
+  tyran: {
+    label: 'Tyran des Ombres', faction: 'Créature Maudite',
+    maxHp: 600, atk: 50, def: 40, spd: 10,
+    color: 0x3a0a5a, accentColor: 0xff2222,
+    moves: [
+      { name: 'Rugissement Dévastateur', moveType: 'LOURD',     power: 60, desc: 'Souffle de terreur absolue.' },
+      { name: 'Frappe Titanesque',       moveType: 'LOURD',     power: 50, desc: 'Coup d\'une force surnaturelle.' },
+      { name: 'Griffe du Tyran',         moveType: 'CAVALERIE', power: 45, desc: 'Lacère tout sur son passage.' },
+      { name: 'Terreur Absolue',         moveType: 'MAGIE',     power: 55, desc: 'Énergie maudite dévastatrice.' },
+    ],
+  },
 };
 
 // Type effectiveness chart (attacker type -> defender type -> multiplier)
@@ -119,6 +130,7 @@ export const UNIT_MOVE_TYPE = {
   compagnie_loup: 'LEGER',
   frere_epee: 'LOURD',
   paysan: 'LEGER',
+  tyran: 'LOURD',
 };
 
 // Units available to train per building type

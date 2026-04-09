@@ -6,6 +6,16 @@ const MAP_HEIGHT = 60;
 // Tile types
 const T = { GRASS: 0, DARK_GRASS: 1, WATER: 2, SAND: 3, DIRT: 4, FOREST: 5, MOUNTAIN: 6 };
 
+// ── Population constants ───────────────────────────────────────────────────────
+const POP = {
+  YEAR_TICKS:    20,   // 1 in-game year = 20 real seconds
+  ADULT_AGE:     16,   // years to become adult
+  get ADULT_TICKS() { return this.YEAR_TICKS * this.ADULT_AGE; }, // 320 ticks ≈ 5.3 min
+  REPRO_COOLDOWN: 240, // ticks between births per house (4 min)
+  SDF_TIMEOUT:    90,  // ticks homeless before going enemy (1.5 min)
+  HOUSE_CAPACITY: 2,   // adults per house
+};
+
 // Construction times in ticks (1 tick = 1 s)
 const BUILD_TIMES = {
   house: 10, barracks: 20, farm: 8, mine: 15,
@@ -153,6 +163,7 @@ class GameRoom {
 
     // ── Enemy villages (with archer towers) ──────────────────────────────────
     this.shared.villages = this._generateVillages();
+    this.shared.dungeons = this._generateDungeons();
 
     // ── NPCs ──────────────────────────────────────────────────────────────────
     this.shared.npcs = SERVER_NPC_DEFS.map(d => ({
@@ -162,6 +173,25 @@ class GameRoom {
 
     this.activeBattle = null;
     this._pendingEvents = [];
+    this.eventTimer = 0;
+
+    // ── Population: 6 founding adults (3 couples) housed in town_hall area ────
+    this.shared.population = [];
+    const foundingPaysans = this.shared.units.filter(u => u.type === 'paysan');
+    for (let i = 0; i < 6; i++) {
+      const paysanUnit = foundingPaysans[i] || null;
+      this.shared.population.push({
+        id: `cit_s${i}`,
+        age: POP.ADULT_TICKS + 50,   // already adult
+        isChild: false,
+        birthHouseId: null,
+        houseId: 'townhall_start',   // virtual; exempt from SDF
+        sdfTimer: 0,
+        x: 6 + (i % 3), y: 5 + Math.floor(i / 3),
+        deployed: !!paysanUnit,
+        unitId: paysanUnit ? paysanUnit.id : null,
+      });
+    }
   }
 
   _nextId() { return `obj_${this.shared.nextId++}`; }
@@ -177,7 +207,7 @@ class GameRoom {
 
   _addUnit(type, x, y, owner) {
     const stats = UNIT_BASE_STATS[type] || UNIT_BASE_STATS['homme_armes'];
-    this.shared.units.push({
+    const unit = {
       id: this._nextId(), type, x, y, owner,
       hp: stats.maxHp, maxHp: stats.maxHp,
       moves: stats.moves.slice(),
@@ -186,10 +216,11 @@ class GameRoom {
       inventory: 0,
       inventoryMax: 20,
       inventoryType: null,
-      // Path-following movement
       targetX: null,
       targetY: null,
-    });
+    };
+    this.shared.units.push(unit);
+    return unit;
   }
 
   join(socketId, name, clan, heroType) {
@@ -296,6 +327,7 @@ class GameRoom {
       case 'BATTLE_MOVE':    return this._battleMove(action.moveIndex);
       case 'INTERACT_NPC':   return this._interactNpc(action.npcId, socketId);
       case 'ACCEPT_QUEST':   return this._acceptQuest(action.npcId, action.heroId);
+      case 'ENTER_DUNGEON':  return this._enterDungeon(action.dungeonId, action.unitId);
       default: return null;
     }
   }
@@ -340,12 +372,104 @@ class GameRoom {
     return { type: 'STATE_UPDATE', shared: this.shared };
   }
 
+  // ─── Timed global effects ─────────────────────────────────────────────────
+
+  tickTimedEffects() {
+    let changed = false;
+    // Stun countdown on individual units
+    for (const u of this.shared.units) {
+      if (u.stunned > 0) { u.stunned--; changed = true; }
+    }
+    // Global timed states
+    if (this.shared.nightOfBlood > 0) { this.shared.nightOfBlood--; changed = true; }
+    if (this.shared.truce > 0)        { this.shared.truce--;        changed = true; }
+    return changed;
+  }
+
+  // ─── Population ───────────────────────────────────────────────────────────
+
+  tickPopulation() {
+    let changed = false;
+    const pop = this.shared.population;
+    const houses = this.shared.buildings.filter(b => b.type === 'house' && !b.underConstruction);
+
+    // 1. Age all children and promote to adult when ready
+    for (const cit of pop.filter(c => c.isChild)) {
+      cit.age++;
+      changed = true;
+      if (cit.age >= POP.ADULT_TICKS) {
+        cit.isChild = false;
+        cit.houseId = null;  // needs their own house
+        cit.sdfTimer = 0;
+        // Position them outside their birth house
+        const bh = this.shared.buildings.find(b => b.id === cit.birthHouseId);
+        cit.x = bh ? bh.x + 1 : 8;
+        cit.y = bh ? bh.y + 1 : 6;
+        this._pendingEvents.push({
+          type: 'random_event',
+          message: '🧑 Un enfant vient d\'avoir 16 ans ! Construisez-lui une maison, sinon il rejoindra les ennemis.',
+          color: 0xffaa44,
+        });
+      }
+    }
+
+    // 2. Reproduction: each house with no current child tries to birth one
+    for (const house of houses) {
+      const hasChild = pop.some(c => c.isChild && c.birthHouseId === house.id);
+      if (hasChild) continue;
+      const residents = pop.filter(c => !c.isChild && c.houseId === house.id);
+      if (residents.length < POP.HOUSE_CAPACITY) continue; // no couple yet
+      house.reproTimer = (house.reproTimer || 0) + 1;
+      changed = true;
+      if (house.reproTimer >= POP.REPRO_COOLDOWN) {
+        house.reproTimer = 0;
+        const child = {
+          id: `cit_${this._nextId()}`,
+          age: 0, isChild: true,
+          birthHouseId: house.id, houseId: house.id,
+          sdfTimer: 0, x: house.x, y: house.y,
+          deployed: false, unitId: null,
+        };
+        pop.push(child);
+        this._pendingEvents.push({
+          type: 'random_event',
+          message: `👶 Une naissance ! L'enfant sera adulte dans ${Math.round(POP.ADULT_TICKS / 60)} min.`,
+          color: 0xffccaa,
+        });
+      }
+    }
+
+    // 3. SDF adults: countdown → enemy
+    for (const cit of pop.filter(c => !c.isChild && !c.houseId && !c.deployed)) {
+      cit.sdfTimer++;
+      changed = true;
+      if (cit.sdfTimer >= POP.SDF_TIMEOUT) {
+        const x = Math.max(1, Math.min(MAP_WIDTH - 2, Math.round(cit.x) || 10));
+        const y = Math.max(1, Math.min(MAP_HEIGHT - 2, Math.round(cit.y) || 10));
+        if (this.map[y]?.[x] !== T.WATER && this.map[y]?.[x] !== T.MOUNTAIN
+          && !this.shared.units.find(u => u.x === x && u.y === y)) {
+          this._addUnit('homme_armes', x, y, 'enemy');
+        }
+        pop.splice(pop.indexOf(cit), 1);
+        this._pendingEvents.push({
+          type: 'random_event',
+          message: '😡 Un sans-abri désespéré a rejoint les ennemis ! Construisez des maisons.',
+          color: 0xff4400,
+        });
+      }
+    }
+
+    return changed;
+  }
+
   // Step all player units one tile toward their targetX/targetY (1 tile per tick)
   tickUnitMovement() {
     let changed = false;
     for (const unit of this.shared.units) {
       if (unit.owner === 'enemy' || unit.owner === 'neutral') continue;
       if (unit.targetX === null || unit.targetX === undefined) continue;
+      // Orage: unit is temporarily frozen
+      if (unit.stunned > 0) { changed = true; continue; }
       // Gathering takes over movement
       if (unit.gatherState && unit.gatherState !== 'idle') {
         unit.targetX = null; unit.targetY = null; continue;
@@ -519,6 +643,225 @@ class GameRoom {
 
   // ─── Resource regen (trees regrow after being cut) ────────────────────────
 
+  // ─── Random events (every 3 min) ──────────────────────────────────────────
+
+  tickRandomEvents() {
+    this.eventTimer++;
+    if (this.eventTimer % 180 !== 0) return false; // 180 ticks × 1 s = 3 min
+
+    const evTypes = [
+      'merchant', 'drought', 'mercenaries', 'enemy_raid',
+      'storm', 'wolf_pack', 'deposit', 'fire', 'mage',
+      'deserter', 'refugees', 'night_blood', 'discovery', 'truce', 'boss',
+    ];
+    const chosen = evTypes[Math.floor(Math.random() * evTypes.length)];
+    let message = '', color = 0xffd700;
+
+    const nearTownHall = (offsets) => {
+      const th = this.shared.buildings.find(b => b.type === 'town_hall' && b.owner !== 'enemy');
+      if (!th) return [];
+      const results = [];
+      for (const off of offsets) {
+        const x = th.x + off.dx, y = th.y + off.dy;
+        if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) continue;
+        if (this.map[y]?.[x] === T.WATER || this.map[y]?.[x] === T.MOUNTAIN) continue;
+        if (this.shared.units.find(u => u.x === x && u.y === y)) continue;
+        results.push({ x, y });
+      }
+      return results;
+    };
+
+    switch (chosen) {
+      // ── Original 4 ────────────────────────────────────────────────────────────
+      case 'merchant': {
+        if ((this.shared.resources.wood || 0) >= 200) {
+          this.shared.resources.wood -= 200;
+          this.shared.resources.gold = (this.shared.resources.gold || 0) + 50;
+          message = '🧳 Un marchand passe ! -200 bois, +50 or';
+        } else {
+          this.shared.resources.gold = (this.shared.resources.gold || 0) + 25;
+          message = '🧳 Un marchand généreux offre +25 or !';
+        }
+        color = 0xffd700;
+        break;
+      }
+      case 'drought': {
+        this.shared.resources.food = Math.max(0, (this.shared.resources.food || 0) - 80);
+        message = '☀️ Sécheresse ! -80 nourriture.';
+        color = 0xff8800;
+        break;
+      }
+      case 'mercenaries': {
+        const slots = nearTownHall([{ dx: 2, dy: 0 }, { dx: -1, dy: 1 }, { dx: 0, dy: 2 }, { dx: 1, dy: -1 }]);
+        for (const s of slots.slice(0, 2)) this._addUnit('mercenaire', s.x, s.y, 'player');
+        message = '⚔️ Renfort ! 2 mercenaires rejoignent votre cause.';
+        color = 0x44cc88;
+        break;
+      }
+      case 'enemy_raid': {
+        this._spawnEnemyClanUnit();
+        this._spawnEnemyClanUnit();
+        this.enemy.aggroLevel = Math.min(100, this.enemy.aggroLevel + 40);
+        message = '💀 Raid ennemi ! Une horde approche.';
+        color = 0xcc2222;
+        break;
+      }
+      // ── 10 nouveaux ───────────────────────────────────────────────────────────
+      case 'storm': {
+        // Stun all player units for 3 ticks
+        for (const u of this.shared.units) {
+          if (u.owner !== 'enemy' && u.owner !== 'neutral') u.stunned = 3;
+        }
+        message = '🌩 Orage ! Vos unités sont immobilisées pendant 3 secondes.';
+        color = 0x4488ff;
+        break;
+      }
+      case 'wolf_pack': {
+        // Spawn 3 wolves near a random player unit
+        const players = this.shared.units.filter(u => u.owner !== 'enemy' && u.owner !== 'neutral');
+        if (players.length) {
+          const target = players[Math.floor(Math.random() * players.length)];
+          const offsets = [{ dx: 2, dy: 0 }, { dx: -2, dy: 0 }, { dx: 0, dy: 2 }, { dx: 0, dy: -2 }];
+          let spawned = 0;
+          for (const off of offsets) {
+            if (spawned >= 3) break;
+            const x = target.x + off.dx, y = target.y + off.dy;
+            if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) continue;
+            if (this.map[y]?.[x] === T.WATER || this.map[y]?.[x] === T.MOUNTAIN) continue;
+            if (this.shared.units.find(u => u.x === x && u.y === y)) continue;
+            this.shared.units.push({
+              id: this._nextId(), type: 'loup', x, y, owner: 'neutral',
+              hp: 25, maxHp: 25, moves: [], reward: 10,
+              gatherState: 'idle', targetResource: null,
+              inventory: 0, inventoryMax: 0, inventoryType: null,
+            });
+            spawned++;
+          }
+        }
+        message = '🐺 Meute affamée ! Des loups rodent près de vos unités.';
+        color = 0x997755;
+        break;
+      }
+      case 'deposit': {
+        // Spawn a new gold or stone resource node near player
+        const th = this.shared.buildings.find(b => b.type === 'town_hall' && b.owner !== 'enemy');
+        if (th) {
+          const rType = Math.random() < 0.5 ? 'gold' : 'stone';
+          for (let attempt = 0; attempt < 30; attempt++) {
+            const x = th.x + Math.floor(Math.random() * 14) - 7;
+            const y = th.y + Math.floor(Math.random() * 14) - 7;
+            if (x < 1 || x >= MAP_WIDTH - 1 || y < 1 || y >= MAP_HEIGHT - 1) continue;
+            if (this.shared.resourceNodes.find(r => r.x === x && r.y === y)) continue;
+            if (this.map[y]?.[x] === T.WATER) continue;
+            const amount = rType === 'gold' ? 300 : 400;
+            this.shared.resourceNodes.push({
+              id: `res_ev_${this._nextId()}`, type: rType, x, y,
+              amount, maxAmount: amount, state: 'alive', regrowTimer: 0,
+            });
+            break;
+          }
+        }
+        message = '💎 Gisement découvert ! Une nouvelle veine de ressources apparaît.';
+        color = 0x88ddff;
+        break;
+      }
+      case 'fire': {
+        // Random player building loses 30% HP
+        const blds = this.shared.buildings.filter(b => b.owner !== 'enemy' && !b.underConstruction && b.type !== 'wall');
+        if (blds.length) {
+          const target = blds[Math.floor(Math.random() * blds.length)];
+          target.hp = Math.max(1, Math.round(target.hp * 0.7));
+        }
+        message = '🔥 Incendie ! La foudre frappe un de vos bâtiments (-30% HP).';
+        color = 0xff4400;
+        break;
+      }
+      case 'mage': {
+        // Wandering mage NPC grants XP to first hero who interacts
+        const th = this.shared.buildings.find(b => b.type === 'town_hall' && b.owner !== 'enemy');
+        if (th) {
+          this.shared.npcs.push({
+            id: `npc_mage_${this._nextId()}`,
+            type: 'pretre', x: th.x + 3, y: th.y,
+            name: 'Mage Itinérant',
+            temporary: true, xpReward: 40,
+            quest: { id: `mage_quest_${Date.now()}`, type: 'none', needed: 0 },
+            questAccepted: false, questProgress: 0, questCompleted: false,
+          });
+        }
+        message = '🧙 Un mage itinérant s\'installe près de votre camp. Interagissez avec lui !';
+        color = 0xaa55ff;
+        break;
+      }
+      case 'deserter': {
+        // A random enemy unit switches sides
+        const enemies = this.shared.units.filter(u => u.owner === 'enemy');
+        if (enemies.length) {
+          const deserter = enemies[Math.floor(Math.random() * enemies.length)];
+          deserter.owner = 'player';
+          deserter.hp = Math.round(deserter.hp * 0.6); // wounded
+        }
+        message = '⚓ Déserteur ! Un soldat ennemi rejoint votre camp.';
+        color = 0x44cc88;
+        break;
+      }
+      case 'refugees': {
+        // Free paysan near town hall
+        const slots2 = nearTownHall([{ dx: 1, dy: 0 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 0, dy: -1 }]);
+        if (slots2.length) this._addUnit('paysan', slots2[0].x, slots2[0].y, 'player');
+        message = '🏚 Des réfugiés arrivent ! Un paysan gratuit rejoint votre village.';
+        color = 0xaabb88;
+        break;
+      }
+      case 'night_blood': {
+        this.shared.nightOfBlood = 60; // 60 ticks = 1 min
+        this.enemy.aggroLevel = Math.min(100, this.enemy.aggroLevel + 50);
+        message = '🌕 Nuit de Sang ! Les ennemis frappent plus fort pendant 1 minute.';
+        color = 0xcc0000;
+        break;
+      }
+      case 'discovery': {
+        this.nextBuildDiscount = 0.25;
+        message = '📜 Découverte Ancienne ! Votre prochain bâtiment coûte 25% moins cher.';
+        color = 0xddcc55;
+        break;
+      }
+      case 'truce': {
+        this.shared.truce = 90; // 90 ticks = 1.5 min
+        this.enemy.aggroLevel = 0;
+        message = '🕊 Trêve ! Les ennemis se retirent pendant 90 secondes.';
+        color = 0x88ccff;
+        break;
+      }
+      case 'boss': {
+        // Spawn tyran somewhere in the middle of the map, very aggressive
+        let bx = 35 + Math.floor(Math.random() * 10) - 5;
+        let by = 25 + Math.floor(Math.random() * 10) - 5;
+        // Avoid water/mountain
+        for (let attempt = 0; attempt < 20; attempt++) {
+          if (this.map[by]?.[bx] !== T.WATER && this.map[by]?.[bx] !== T.MOUNTAIN
+            && !this.shared.units.find(u => u.x === bx && u.y === by)) break;
+          bx = 30 + Math.floor(Math.random() * 20);
+          by = 20 + Math.floor(Math.random() * 20);
+        }
+        const boss = UNIT_BASE_STATS.tyran;
+        this.shared.units.push({
+          id: this._nextId(), type: 'tyran', x: bx, y: by,
+          owner: 'neutral', hp: boss.maxHp, maxHp: boss.maxHp,
+          moves: [], reward: boss.reward,
+          gatherState: 'idle', targetResource: null,
+          inventory: 0, inventoryMax: 0, inventoryType: null,
+          isBoss: true,
+        });
+        this._pendingEvents.push({ type: 'random_event', message: '💀 Un Tyran des Ombres surgit au cœur de la carte !', color: 0x7700aa });
+        return true;
+      }
+    }
+
+    this._pendingEvents.push({ type: 'random_event', message, color });
+    return true;
+  }
+
   tickResourceRegen() {
     let changed = false;
     const REGROW_TICKS = 90; // 90 s to full regrow
@@ -545,7 +888,26 @@ class GameRoom {
     for (const bld of this.shared.buildings) {
       if (!bld.underConstruction) continue;
       bld.constructionProgress++;
-      if (bld.constructionProgress >= bld.constructionTime) bld.underConstruction = false;
+      if (bld.constructionProgress >= bld.constructionTime) {
+        bld.underConstruction = false;
+        // New house: move in SDF adults first, then virtual settlers if none
+        if (bld.type === 'house') {
+          bld.reproTimer = 0;
+          const sdfAdults = this.shared.population.filter(c => !c.isChild && !c.houseId && !c.deployed);
+          const movedIn = sdfAdults.slice(0, POP.HOUSE_CAPACITY);
+          for (const cit of movedIn) { cit.houseId = bld.id; cit.sdfTimer = 0; }
+          // If fewer than 2 moved in, create virtual settlers to fill the house
+          for (let i = movedIn.length; i < POP.HOUSE_CAPACITY; i++) {
+            this.shared.population.push({
+              id: `cit_${this._nextId()}`,
+              age: POP.ADULT_TICKS + Math.floor(Math.random() * 100),
+              isChild: false, birthHouseId: bld.id, houseId: bld.id,
+              sdfTimer: 0, x: bld.x + (i === 0 ? 0 : 1), y: bld.y,
+              deployed: false, unitId: null,
+            });
+          }
+        }
+      }
       changed = true;
     }
     return changed;
@@ -583,7 +945,11 @@ class GameRoom {
       if (occupied) return null;
     }
 
-    for (const [res, amount] of Object.entries(cost)) this.shared.resources[res] -= amount;
+    const discount = this.nextBuildDiscount || 0;
+    this.nextBuildDiscount = 0;
+    for (const [res, amount] of Object.entries(cost)) {
+      this.shared.resources[res] -= Math.round(amount * (1 - discount));
+    }
     const buildTime = BUILD_TIMES[type] || 10;
     this._addBuilding(type, tx, ty, 'shared', buildTime);
     // Quest progress: build
@@ -601,8 +967,15 @@ class GameRoom {
     for (const [res, amount] of Object.entries(cost)) {
       if ((this.shared.resources[res] || 0) < amount) return null;
     }
+    // Require an available adult citizen (housed, not yet deployed)
+    const citizen = this.shared.population.find(c => !c.isChild && c.houseId && !c.deployed);
+    if (!citizen) {
+      return { type: 'ERROR', message: 'Pas d\'habitant disponible ! Attendez une naissance ou construisez des maisons.' };
+    }
     for (const [res, amount] of Object.entries(cost)) this.shared.resources[res] -= amount;
-    this._addUnit(unitType, building.x + 1, building.y + 1, 'player');
+    citizen.deployed = true;
+    const unit = this._addUnit(unitType, building.x + 1, building.y + 1, 'player');
+    citizen.unitId = unit.id;
     // Quest progress: train_units
     this._updateQuestProgressAll('train_units', unitType);
     return { type: 'STATE_UPDATE', shared: this.shared };
@@ -655,8 +1028,111 @@ class GameRoom {
           villageGuard: vid, homeX: sp.x, homeY: sp.y,
         });
       }
+
+      // 1 house adjacent to village tower
+      const houseOff = [{ dx: -2, dy: 0 }, { dx: 0, dy: 2 }, { dx: 2, dy: 1 }, { dx: -1, dy: -2 }];
+      for (const off of houseOff) {
+        const hx = sp.x + off.dx, hy = sp.y + off.dy;
+        if (hx < 1 || hx >= MAP_WIDTH - 1 || hy < 1 || hy >= MAP_HEIGHT - 1) continue;
+        if (this.map[hy]?.[hx] === T.WATER || this.map[hy]?.[hx] === T.MOUNTAIN) continue;
+        this._addBuilding('house', hx, hy, 'neutral');
+        break;
+      }
+
+      // 1 paysan wanders near the house
+      const px = Math.max(1, Math.min(MAP_WIDTH - 2, sp.x - 2));
+      const py = Math.max(1, Math.min(MAP_HEIGHT - 2, sp.y + 1));
+      if (this.map[py]?.[px] !== T.WATER && this.map[py]?.[px] !== T.MOUNTAIN) {
+        this.shared.units.push({
+          id: this._nextId(), type: 'paysan', x: px, y: py,
+          owner: 'neutral', hp: 30, maxHp: 30, moves: [], reward: 5,
+          gatherState: 'idle', targetResource: null,
+          inventory: 0, inventoryMax: 0, inventoryType: null,
+          villageGuard: vid, homeX: sp.x, homeY: sp.y,
+        });
+      }
     }
     return villages;
+  }
+
+  _generateDungeons() {
+    const DEFS = [
+      {
+        pos: { x: 25, y: 20 },
+        artifact: { name: 'Cœur de Fer', stat: 'hp', value: 30 },
+        rooms: [
+          { name: 'Entrée sombre',       mobs: [{ type: 'loup', hp: 45 }, { type: 'sanglier', hp: 60 }] },
+          { name: 'Couloir hanté',       mobs: [{ type: 'homme_armes', hp: 80 }, { type: 'archer', hp: 65 }, { type: 'loup', hp: 45 }] },
+          { name: 'Gardien du Tombeau',  mobs: [{ type: 'garde_roi', hp: 200 }] },
+        ],
+      },
+      {
+        pos: { x: 52, y: 36 },
+        artifact: { name: 'Lame Maudite', stat: 'atk', value: 8 },
+        rooms: [
+          { name: 'Antre des brigands',  mobs: [{ type: 'mercenaire', hp: 70 }, { type: 'compagnie_loup', hp: 75 }] },
+          { name: 'Salle des gardes',    mobs: [{ type: 'chevalier', hp: 95 }, { type: 'homme_armes', hp: 80 }, { type: 'archer', hp: 65 }] },
+          { name: 'Chef des Pillards',   mobs: [{ type: 'croise', hp: 220 }] },
+        ],
+      },
+      {
+        pos: { x: 32, y: 46 },
+        artifact: { name: 'Égide Ancienne', stat: 'def', value: 6 },
+        rooms: [
+          { name: 'Crypte profonde',     mobs: [{ type: 'sanglier', hp: 65 }, { type: 'ours', hp: 90 }] },
+          { name: 'Salle maudite',       mobs: [{ type: 'frere_epee', hp: 90 }, { type: 'croise', hp: 95 }] },
+          { name: 'Seigneur de l\'Ombre', mobs: [{ type: 'chevalier', hp: 240 }] },
+        ],
+      },
+    ];
+
+    const dungeons = [];
+    for (let i = 0; i < DEFS.length; i++) {
+      const def = DEFS[i];
+      const sp = this._findValidSpawn(def.pos.x, def.pos.y);
+      if (Math.abs(sp.x - 8) + Math.abs(sp.y - 6) < 12) continue;
+      if (Math.abs(sp.x - (MAP_WIDTH - 9)) + Math.abs(sp.y - (MAP_HEIGHT - 7)) < 12) continue;
+      dungeons.push({
+        id: `dungeon_${i}`, x: sp.x, y: sp.y,
+        cleared: false, artifact: def.artifact, rooms: def.rooms,
+      });
+    }
+    return dungeons;
+  }
+
+  _enterDungeon(dungeonId, unitId) {
+    const dungeon = (this.shared.dungeons || []).find(d => d.id === dungeonId && !d.cleared);
+    const hero = this.shared.units.find(u => u.id === unitId && u.owner !== 'enemy' && u.owner !== 'neutral');
+    if (!dungeon || !hero || this.activeBattle) return null;
+    return this._startDungeonRoom(hero, dungeon, 0);
+  }
+
+  _startDungeonRoom(hero, dungeon, roomIdx) {
+    // Clean up leftover dungeon units from previous rooms
+    this.shared.units = this.shared.units.filter(u => u.dungeonUnit !== dungeon.id);
+
+    const room = dungeon.rooms[roomIdx];
+    const newMobs = room.mobs.map(m => {
+      const mob = {
+        id: this._nextId(), type: m.type, x: dungeon.x, y: dungeon.y,
+        owner: 'neutral', hp: m.hp, maxHp: m.hp, moves: [], reward: 0,
+        gatherState: 'idle', targetResource: null,
+        inventory: 0, inventoryMax: 0, inventoryType: null,
+        dungeonUnit: dungeon.id,
+      };
+      this.shared.units.push(mob);
+      return mob;
+    });
+
+    this.activeBattle = {
+      playerTeamIds: [hero.id],
+      enemyTeamIds: newMobs.map(m => m.id),
+      currentPlayerIdx: 0, currentEnemyIdx: 0,
+      turn: 'player',
+      dungeon: { id: dungeon.id, room: roomIdx, heroId: hero.id },
+      log: [`🏰 ${room.name} (salle ${roomIdx + 1}/${dungeon.rooms.length})`],
+    };
+    return { type: 'BATTLE_START', battle: this._battleSnapshot() };
   }
 
   // Called when a player unit moves onto a village tower tile
@@ -767,8 +1243,87 @@ class GameRoom {
   }
 
   tickNeutralMobs() {
+    const VILLAGE_AGGRO_RADIUS = 8;
     let changed = false;
+    const playerUnits = this.shared.units.filter(u => u.owner !== 'enemy' && u.owner !== 'neutral');
+
     for (const unit of this.shared.units.filter(u => u.owner === 'neutral')) {
+      // ── Village guards: proximity aggro ──────────────────────────────────────
+      if (unit.villageGuard) {
+        const village = (this.shared.villages || []).find(v => v.id === unit.villageGuard);
+        if (village?.capturedBy) continue; // village already taken — guards removed anyway
+
+        // Find nearest player unit within aggro radius of the village centre
+        let nearestPlayer = null, nearestDist = Infinity;
+        for (const p of playerUnits) {
+          const d = Math.abs(p.x - unit.homeX) + Math.abs(p.y - unit.homeY);
+          if (d <= VILLAGE_AGGRO_RADIUS && d < nearestDist) { nearestPlayer = p; nearestDist = d; }
+        }
+
+        if (nearestPlayer) {
+          unit.aggroMode = true;
+          if (!this.activeBattle) {
+            const prevX = unit.x, prevY = unit.y;
+            this._stepToward(unit, nearestPlayer.x, nearestPlayer.y);
+            if (unit.x !== prevX || unit.y !== prevY) changed = true;
+            // Collision with a player unit → trigger battle
+            const hit = playerUnits.find(p => p.x === unit.x && p.y === unit.y);
+            if (hit) {
+              unit.x = prevX; unit.y = prevY; // keep positions distinct
+              const result = this._startBattle(hit, unit);
+              if (result) this._pendingEvents.push({ type: 'battle_start', battle: result.battle });
+              changed = true;
+            }
+          }
+        } else {
+          unit.aggroMode = false;
+          // Return to patrol zone if too far from home
+          const distHome = Math.abs(unit.x - unit.homeX) + Math.abs(unit.y - unit.homeY);
+          if (distHome > 4) {
+            const prevX = unit.x, prevY = unit.y;
+            this._stepToward(unit, unit.homeX, unit.homeY);
+            if (unit.x !== prevX || unit.y !== prevY) changed = true;
+          } else if (Math.random() < 0.15) {
+            const dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
+            const { dx, dy } = dirs[Math.floor(Math.random() * 4)];
+            const nx = unit.x + dx, ny = unit.y + dy;
+            const dHome = Math.abs(nx - unit.homeX) + Math.abs(ny - unit.homeY);
+            if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT
+              && this.map[ny][nx] !== T.WATER && this.map[ny][nx] !== T.MOUNTAIN
+              && dHome <= 4
+              && !this.shared.units.find(u => u !== unit && u.x === nx && u.y === ny)) {
+              unit.x = nx; unit.y = ny; changed = true;
+            }
+          }
+        }
+        continue;
+      }
+
+      // ── Boss: always aggro, very large radius ────────────────────────────────
+      if (unit.isBoss) {
+        if (!this.activeBattle) {
+          let nearestPlayer = null, nearestDist = Infinity;
+          for (const p of playerUnits) {
+            const d = Math.abs(p.x - unit.x) + Math.abs(p.y - unit.y);
+            if (d < nearestDist) { nearestPlayer = p; nearestDist = d; }
+          }
+          if (nearestPlayer) {
+            const prevX = unit.x, prevY = unit.y;
+            this._stepToward(unit, nearestPlayer.x, nearestPlayer.y);
+            if (unit.x !== prevX || unit.y !== prevY) changed = true;
+            const hit = playerUnits.find(p => p.x === unit.x && p.y === unit.y);
+            if (hit) {
+              unit.x = prevX; unit.y = prevY;
+              const result = this._startBattle(hit, unit);
+              if (result) this._pendingEvents.push({ type: 'battle_start', battle: result.battle });
+              changed = true;
+            }
+          }
+        }
+        continue;
+      }
+
+      // ── Regular neutral mobs: random wander ──────────────────────────────────
       if (Math.random() < 0.15) {
         const dirs = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
         const { dx, dy } = dirs[Math.floor(Math.random() * 4)];
@@ -776,8 +1331,7 @@ class GameRoom {
         if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT
           && this.map[ny][nx] !== T.WATER && this.map[ny][nx] !== T.MOUNTAIN
           && !this.shared.units.find(u => u !== unit && u.x === nx && u.y === ny)) {
-          unit.x = nx; unit.y = ny;
-          changed = true;
+          unit.x = nx; unit.y = ny; changed = true;
         }
       }
     }
@@ -868,12 +1422,13 @@ class GameRoom {
       }
     }
 
-    // ── Spawn new enemy units (scales with time) ──────────────────────────────
+    // ── Spawn new enemy units (scales with time; blocked during truce) ────────
     this.enemy.buildTimer++;
     const maxEnemies = Math.min(4 + Math.floor(this.enemy.buildTimer / 80), 14);
-    if (enemies.length < maxEnemies && this.enemy.buildTimer % 22 === 0) {
+    if (!this.shared.truce && enemies.length < maxEnemies && this.enemy.buildTimer % 22 === 0) {
       this._spawnEnemyClanUnit(); changed = true;
     }
+    if (this.shared.truce) { this.enemy.aggroLevel = 0; }
 
     return changed;
   }
@@ -883,6 +1438,25 @@ class GameRoom {
   _interactNpc(npcId, socketId) {
     const npc = this.shared.npcs.find(n => n.id === npcId);
     if (!npc) return null;
+    // Temporary mage: grant XP to hero and disappear
+    if (npc.temporary && !npc.questCompleted) {
+      const hero = this.shared.units.find(u => u.isHero && u.heroOwner === socketId);
+      if (hero) {
+        hero.xp = (hero.xp || 0) + (npc.xpReward || 40);
+        while (hero.level < XP_PER_LEVEL.length - 1 && hero.xp >= XP_PER_LEVEL[hero.level + 1]) {
+          hero.level++;
+          hero.maxHp += 15;
+          hero.hp = Math.min(hero.hp + 15, hero.maxHp);
+        }
+      }
+      npc.questCompleted = true;
+      this._pendingEvents.push({
+        type: 'random_event',
+        message: `🧙 Le mage itinérant offre +${npc.xpReward} XP à votre héros et disparaît.`,
+        color: 0xaa55ff,
+      });
+      return { type: 'STATE_UPDATE', shared: this.shared };
+    }
     // Find this player's hero
     const hero = this.shared.units.find(u => u.isHero && u.heroOwner === socketId);
     return { type: 'NPC_INTERACT', npc, heroId: hero?.id };
@@ -999,7 +1573,7 @@ class GameRoom {
     const log = [];
 
     // Player attacks
-    const pDmg = this._calcDamage(playerMove, pStats, eStats, enemyUnit.type);
+    const pDmg = this._calcDamage(playerMove, pStats, eStats, enemyUnit.type, playerUnit, enemyUnit);
     enemyUnit.hp = Math.max(0, enemyUnit.hp - pDmg);
     log.push(`${playerMove.name} inflige ${pDmg} dégâts à ${enemyUnit.type} !`);
 
@@ -1019,6 +1593,38 @@ class GameRoom {
       b.currentEnemyIdx++;
       const nextEnemy = this.shared.units.find(u => u.id === b.enemyTeamIds[b.currentEnemyIdx]);
       if (!nextEnemy) {
+        // ── Dungeon room cleared → advance to next room or complete ────────────
+        if (b.dungeon) {
+          const { id: dungeonId, room: roomIdx, heroId } = b.dungeon;
+          const dungeon = (this.shared.dungeons || []).find(d => d.id === dungeonId);
+          const hero = this.shared.units.find(u => u.id === heroId);
+          const nextRoom = roomIdx + 1;
+          if (dungeon && nextRoom < dungeon.rooms.length && hero) {
+            log.push(`✅ Salle ${roomIdx + 1} terminée !`);
+            b.log = log;
+            const result = this._startDungeonRoom(hero, dungeon, nextRoom);
+            return { type: 'DUNGEON_NEXT_ROOM', room: nextRoom, battle: result.battle };
+          }
+          if (dungeon) {
+            dungeon.cleared = true;
+            // Apply artifact permanently to hero
+            if (hero) {
+              hero.artifacts = [...(hero.artifacts || []), dungeon.artifact];
+              if (dungeon.artifact.stat === 'hp') {
+                hero.maxHp += dungeon.artifact.value;
+                hero.hp = hero.maxHp;
+              }
+            }
+            log.push(`✨ ${dungeon.artifact.name} obtenu !`);
+          }
+          this.activeBattle = null;
+          this.shared.units = this.shared.units.filter(u => !u.dungeonUnit);
+          for (const u of this.shared.units) {
+            if (u.owner !== 'enemy' && u.owner !== 'neutral') u.hp = u.maxHp;
+          }
+          return { type: 'BATTLE_END', winner: 'player', log, dungeonComplete: dungeon?.artifact, shared: this.shared };
+        }
+        // ── Normal battle win ──────────────────────────────────────────────────
         this.activeBattle = null;
         for (const u of this.shared.units) {
           if (u.owner !== 'enemy' && u.owner !== 'neutral') u.hp = u.maxHp;
@@ -1031,12 +1637,15 @@ class GameRoom {
     }
 
     // Enemy retaliates
-    const eDmg = this._calcDamage(enemyMove, eStats, pStats, playerUnit.type);
+    const eDmg = this._calcDamage(enemyMove, eStats, pStats, playerUnit.type, enemyUnit, playerUnit);
     playerUnit.hp = Math.max(0, playerUnit.hp - eDmg);
     log.push(`${enemyUnit.type} utilise ${enemyMove.name} — ${eDmg} dégâts !`);
 
     if (playerUnit.hp <= 0) {
       log.push(`${playerUnit.type} est vaincu !`);
+      // Citizen linked to this unit dies with them
+      const deadCitIdx = this.shared.population.findIndex(c => c.unitId === playerUnit.id);
+      if (deadCitIdx !== -1) this.shared.population.splice(deadCitIdx, 1);
       this.shared.units = this.shared.units.filter(u => u.id !== playerUnit.id);
       b.currentPlayerIdx++;
       const nextPlayer = this.shared.units.find(u => u.id === b.playerTeamIds[b.currentPlayerIdx]);
@@ -1054,9 +1663,15 @@ class GameRoom {
     return { type: 'BATTLE_UPDATE', battle: this._battleSnapshot(), shared: this.shared };
   }
 
-  _calcDamage(move, atkStats, defStats, defUnitType) {
+  _calcDamage(move, atkStats, defStats, defUnitType, atkUnit = null, defUnit = null) {
     if (!move || !move.power) return 0;
-    const base = move.power * (atkStats.atk / defStats.def);
+    let atk = atkStats.atk;
+    let def = defStats.def;
+    for (const art of (atkUnit?.artifacts || [])) { if (art.stat === 'atk') atk += art.value; }
+    for (const art of (defUnit?.artifacts || [])) { if (art.stat === 'def') def += art.value; }
+    // Nuit de sang: enemy units deal +20% dmg
+    if (this.shared.nightOfBlood > 0 && (atkUnit?.owner === 'enemy' || atkUnit?.owner === 'neutral')) atk *= 1.2;
+    const base = move.power * (atk / Math.max(1, def));
     const effectiveness = TYPE_CHART[move.moveType]?.[UNIT_MOVE_TYPE[defUnitType]] ?? 1;
     return Math.round(base * effectiveness * (0.85 + Math.random() * 0.15));
   }
@@ -1081,12 +1696,14 @@ const UNIT_SPEED = {
   compagnie_loup: 1.4, frere_epee: 1.4, banniere_rouge: 1.4,
   // Gatherer — unchanged
   paysan: 1.0,
+  // Boss — slow but relentless
+  tyran: 1.2,
 };
 
 const UNIT_MOVE_TYPE = {
   chevalier: 'CAVALERIE', garde_roi: 'LOURD', homme_armes: 'LOURD',
   archer: 'LEGER', croise: 'LOURD', mercenaire: 'LEGER',
-  compagnie_loup: 'LEGER', frere_epee: 'LOURD', paysan: 'LEGER',
+  compagnie_loup: 'LEGER', frere_epee: 'LOURD', paysan: 'LEGER', tyran: 'LOURD',
   // Neutral mobs
   loup: 'LEGER', sanglier: 'CAVALERIE', ours: 'LOURD',
   // Heroes
@@ -1187,6 +1804,15 @@ const UNIT_BASE_STATS = {
   ours: {
     maxHp: 65, atk: 22, def: 15, spd: 10, reward: 30,
     moves: [{ name: 'Griffe', moveType: 'LOURD', power: 20 }],
+  },
+  tyran: {
+    maxHp: 600, atk: 50, def: 40, spd: 10, reward: 300,
+    moves: [
+      { name: 'Rugissement Dévastateur', moveType: 'LOURD',     power: 60 },
+      { name: 'Frappe Titanesque',       moveType: 'LOURD',     power: 50 },
+      { name: 'Griffe du Tyran',         moveType: 'CAVALERIE', power: 45 },
+      { name: 'Terreur Absolue',         moveType: 'MAGIE',     power: 55 },
+    ],
   },
 };
 

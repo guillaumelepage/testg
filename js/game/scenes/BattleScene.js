@@ -66,8 +66,9 @@ export class BattleScene extends Phaser.Scene {
 
     // ── Network ───────────────────────────────────────────────────────────────
     socketManager
-      .on('battle_update', (data) => this._onBattleUpdate(data))
-      .on('battle_end',    (data) => this._onBattleEnd(data));
+      .on('battle_update',     (data) => this._onBattleUpdate(data))
+      .on('battle_end',        (data) => this._onBattleEnd(data))
+      .on('dungeon_next_room', (data) => this._onDungeonNextRoom(data));
   }
 
   // ─── Background ───────────────────────────────────────────────────────────
@@ -318,34 +319,59 @@ export class BattleScene extends Phaser.Scene {
 
     const { width: W, height: H } = this.cameras.main;
     const isVictory = winner === 'player';
+    const artifact = data.dungeonComplete;
 
     this.time.delayedCall(500, () => {
-      this.add.rectangle(W / 2, H / 2, 380, 190, 0x12080a, 0.96)
-        .setStrokeStyle(3, isVictory ? 0xffd700 : 0xcc2222).setDepth(20);
-      this.add.text(W / 2, H / 2 - 60,
-        isVictory ? '⚔️  VICTOIRE  ⚔️' : '💀  DÉFAITE  💀', {
-          fontFamily: 'Georgia, serif', fontSize: '28px',
-          color: isVictory ? '#ffd700' : '#cc4422',
+      const boxH = artifact ? 230 : 190;
+      this.add.rectangle(W / 2, H / 2, 400, boxH, 0x12080a, 0.96)
+        .setStrokeStyle(3, isVictory ? (artifact ? 0xcc88ff : 0xffd700) : 0xcc2222).setDepth(20);
+      this.add.text(W / 2, H / 2 - boxH / 2 + 30,
+        isVictory ? (artifact ? '✨ DONJON TERMINÉ ✨' : '⚔️  VICTOIRE  ⚔️') : '💀  DÉFAITE  💀', {
+          fontFamily: 'Georgia, serif', fontSize: '26px',
+          color: isVictory ? (artifact ? '#cc88ff' : '#ffd700') : '#cc4422',
         }).setOrigin(0.5).setDepth(21);
 
-      const msg = isVictory
-        ? `${this.playerTeam.filter(u => u.hp > 0).length} allié(s) survivant(s)`
-        : 'Toutes vos unités sont tombées...';
-      this.add.text(W / 2, H / 2 - 14, msg, {
-        fontFamily: 'sans-serif', fontSize: '14px', color: '#d4c090',
-      }).setOrigin(0.5).setDepth(21);
+      if (artifact) {
+        const statLabel = { hp: '+HP max', atk: '+ATK', def: '+DEF' }[artifact.stat] || artifact.stat;
+        this.add.text(W / 2, H / 2 - 20, `Artéfact obtenu :`, {
+          fontFamily: 'sans-serif', fontSize: '12px', color: '#aaaaaa',
+        }).setOrigin(0.5).setDepth(21);
+        this.add.text(W / 2, H / 2 + 4, artifact.name, {
+          fontFamily: 'Georgia, serif', fontSize: '18px', color: '#cc88ff',
+        }).setOrigin(0.5).setDepth(21);
+        this.add.text(W / 2, H / 2 + 26, `${statLabel} +${artifact.value}  (permanent)`, {
+          fontFamily: 'monospace', fontSize: '13px', color: '#88ffcc',
+        }).setOrigin(0.5).setDepth(21);
+      } else {
+        const msg = isVictory
+          ? `${this.playerTeam.filter(u => u.hp > 0).length} allié(s) survivant(s)`
+          : 'Toutes vos unités sont tombées...';
+        this.add.text(W / 2, H / 2 - 14, msg, {
+          fontFamily: 'sans-serif', fontSize: '14px', color: '#d4c090',
+        }).setOrigin(0.5).setDepth(21);
+      }
 
-      const cont = this.add.rectangle(W / 2, H / 2 + 55, 190, 38, 0x3a6bbf, 0.92)
+      const contY = H / 2 + boxH / 2 - 35;
+      const cont = this.add.rectangle(W / 2, contY, 190, 38, 0x3a6bbf, 0.92)
         .setInteractive({ useHandCursor: true }).setDepth(21);
-      this.add.text(W / 2, H / 2 + 55, 'Continuer', {
+      this.add.text(W / 2, contY, 'Continuer', {
         fontFamily: 'Georgia, serif', fontSize: '15px', color: '#ffffff',
       }).setOrigin(0.5).setDepth(22);
       cont.on('pointerdown', () => {
+        socketManager.off('dungeon_next_room');
         if (data.shared) this.scene.get('World')?._applyStateUpdate(data.shared);
         this.scene.stop('Battle');
         this.scene.resume('World');
       });
     });
+  }
+
+  _onDungeonNextRoom(data) {
+    // Unregister listeners, then restart BattleScene with next room data
+    socketManager.off('battle_update').off('battle_end').off('dungeon_next_room');
+    const worldScene = this.worldScene;
+    this.scene.stop('Battle');
+    this.scene.launch('Battle', { battle: data.battle, worldScene });
   }
 
   _fmtLog(arr) {
