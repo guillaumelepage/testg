@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { socketManager } from '../network/SocketManager';
+import { soundManager } from '../network/SoundManager';
 import { BUILDING_DATA } from '../data/buildings';
 import { HERO_DEFS } from '../data/heroes';
 
@@ -194,16 +195,21 @@ export class WorldScene extends Phaser.Scene {
     // ── Network ───────────────────────────────────────────────────────────────
     socketManager
       .on('state_update',   (data) => this._applyStateUpdate(data.shared))
-      .on('battle_start',   (data) => this._enterBattle(data.battle))
+      .on('battle_start',   (data) => { soundManager.battleStart(); this._enterBattle(data.battle); })
       .on('battle_update',  (data) => this._applyStateUpdate(data.shared))
       .on('battle_end',     (data) => this._applyStateUpdate(data.shared))
-      .on('player_left',       ()     => this.scene.get('UI')?.showMessage('Votre allié a quitté la partie !', 0xff4444))
-      .on('player_joined',     (data) => this.scene.get('UI')?.showMessage(`${data.name} a rejoint la partie !`, 0x44cc88))
+      .on('player_left',    () => { soundManager.playerLeft();  this.scene.get('UI')?.showMessage('Votre allié a quitté la partie !', 0xff4444); })
+      .on('player_joined',  (data) => { soundManager.playerJoined(); this.scene.get('UI')?.showMessage(`${data.name} a rejoint la partie !`, 0x44cc88); })
       .on('npc_interact',      (data) => this._showNpcDialogue(data.npc, data.heroId))
-      .on('village_captured',  (data) => this._onVillageCaptured(data))
+      .on('village_captured',  (data) => { soundManager.villageCaptured(); this._onVillageCaptured(data); })
       .on('arrow_shot',        (data) => this._showArrowShot(data))
-      .on('random_event',      (data) => this.scene.get('UI')?.showMessage(data.message, data.color))
-      .on('action_error',      (data) => this.scene.get('UI')?.showMessage(data.message, 0xff4444))
+      .on('random_event',      (data) => {
+        if (data.sound === 'good')        soundManager.eventGood();
+        else if (data.sound === 'danger') soundManager.eventDanger();
+        else                              soundManager.event();
+        this.scene.get('UI')?.showMessage(data.message, data.color);
+      })
+      .on('action_error',      (data) => { soundManager.error(); this.scene.get('UI')?.showMessage(data.message, 0xff4444); })
       .on('connected',         ()     => this._onReconnected())
       .on('disconnected',      ()     => this.scene.get('UI')?.showMessage('⚠ Connexion perdue… Reconnexion automatique', 0xff8800))
       .on('game_start',        (snap) => this._applyStateUpdate(snap.shared));

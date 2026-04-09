@@ -662,6 +662,10 @@ class GameRoom {
     const chosen = evTypes[Math.floor(Math.random() * evTypes.length)];
     let message = '', color = 0xffd700;
 
+    const GOOD_EVENTS   = new Set(['merchant', 'deposit', 'refugees', 'discovery', 'truce', 'mage']);
+    const DANGER_EVENTS = new Set(['enemy_raid', 'wolf_pack', 'fire', 'night_blood', 'boss', 'mercenaries', 'deserter', 'drought', 'storm']);
+    const _sound = GOOD_EVENTS.has(chosen) ? 'good' : DANGER_EVENTS.has(chosen) ? 'danger' : 'event';
+
     const nearTownHall = (offsets) => {
       const th = this.shared.buildings.find(b => b.type === 'town_hall' && b.owner !== 'enemy');
       if (!th) return [];
@@ -858,12 +862,12 @@ class GameRoom {
           inventory: 0, inventoryMax: 0, inventoryType: null,
           isBoss: true,
         });
-        this._pendingEvents.push({ type: 'random_event', message: '💀 Un Tyran des Ombres surgit au cœur de la carte !', color: 0x7700aa });
+        this._pendingEvents.push({ type: 'random_event', message: '💀 Un Tyran des Ombres surgit au cœur de la carte !', color: 0x7700aa, sound: 'danger' });
         return true;
       }
     }
 
-    this._pendingEvents.push({ type: 'random_event', message, color });
+    this._pendingEvents.push({ type: 'random_event', message, color, sound: _sound });
     return true;
   }
 

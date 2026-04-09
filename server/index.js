@@ -124,14 +124,21 @@ io.on('connection', (socket) => {
   // Reconnection: player rejoins a game in progress with their old player name
   socket.on('rejoin_game', ({ code, name }) => {
     const room = rooms.get(code);
-    if (!room || room.state !== 'playing') return;
-    // Find existing player slot by name
+    if (!room || room.state !== 'playing') {
+      socket.emit('error', { message: 'Partie introuvable ou terminée.' });
+      return;
+    }
+    // Find existing player slot by name (including disconnected players)
     const oldId = Object.keys(room.players).find(id => room.players[id].name === name);
-    if (!oldId) return;
+    if (!oldId) {
+      socket.emit('error', { message: 'Joueur introuvable dans cette partie.' });
+      return;
+    }
     const player = room.players[oldId];
     delete room.players[oldId];
-    room.players[socket.id] = { ...player, socketId: socket.id };
-    room.playerOrder = room.playerOrder.map(id => id === oldId ? socket.id : id);
+    room.players[socket.id] = { ...player, socketId: socket.id, disconnected: false };
+    // Restore in playerOrder (was removed on disconnect, re-add)
+    if (!room.playerOrder.includes(socket.id)) room.playerOrder.push(socket.id);
     // Reassign hero ownership
     const hero = room.shared.units.find(u => u.isHero && u.heroOwner === oldId);
     if (hero) hero.heroOwner = socket.id;
