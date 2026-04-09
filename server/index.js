@@ -43,10 +43,11 @@ setInterval(() => {
     const moveChanged = room.tickUnitMovement();
     const gatherChanged = room.tickGathering();
     const buildChanged = room.tickConstruction();
+    const regenChanged = room.tickResourceRegen();
     const aiChanged = room.tickEnemyAI();
     const mobChanged = room.tickNeutralMobs();
 
-    if (moveChanged || gatherChanged || buildChanged || aiChanged || mobChanged) {
+    if (moveChanged || gatherChanged || buildChanged || regenChanged || aiChanged || mobChanged) {
       io.to(code).emit('state_update', { shared: room.shared });
     }
   }
@@ -58,10 +59,14 @@ io.on('connection', (socket) => {
   socket.on('list_rooms', (cb) => {
     const available = [];
     for (const [code, room] of rooms) {
-      if (!room.isFull() && room.state === 'waiting') {
-        const host = Object.values(room.players)[0];
-        if (host) available.push({ code, hostName: host.name, hostClan: host.clan });
-      }
+      if (room.isFull()) continue;
+      const host = Object.values(room.players)[0];
+      if (host) available.push({
+        code,
+        hostName: host.name,
+        hostClan: host.clan,
+        inProgress: room.state === 'playing',
+      });
     }
     cb(available);
   });
@@ -81,26 +86,30 @@ io.on('connection', (socket) => {
   socket.on('join_room', ({ code, name, clan, heroType }, cb) => {
     const normalizedCode = code?.toUpperCase();
     const room = rooms.get(normalizedCode);
-    if (!room) {
-      cb({ ok: false, error: 'Salle introuvable' });
-      return;
-    }
-    if (room.isFull()) {
-      cb({ ok: false, error: 'Salle pleine' });
-      return;
-    }
+    if (!room) { cb({ ok: false, error: 'Salle introuvable' }); return; }
+    if (room.isFull()) { cb({ ok: false, error: 'Salle pleine' }); return; }
 
     room.join(socket.id, name, clan, heroType);
     socket.join(normalizedCode);
     socket.data.roomCode = normalizedCode;
-    room.state = 'playing';
-    room.startGame();
 
-    const snapshot = room.getStateSnapshot();
-    io.to(normalizedCode).emit('game_start', snapshot);
-
-    console.log(`[room] ${socket.id} joined room ${normalizedCode} — game starting`);
-    cb({ ok: true, code: normalizedCode, snapshot });
+    if (room.state === 'playing') {
+      // Late join — spawn a hero for the newcomer, send snapshot only to them
+      room.addLateJoiner(socket.id);
+      const snapshot = room.getStateSnapshot();
+      socket.emit('game_start', snapshot);
+      io.to(normalizedCode).emit('player_joined', { name });
+      console.log(`[room] ${socket.id} late-joined ${normalizedCode}`);
+      cb({ ok: true, code: normalizedCode, snapshot });
+    } else {
+      // Normal join — second player completes the pair, start the game
+      room.state = 'playing';
+      room.startGame();
+      const snapshot = room.getStateSnapshot();
+      io.to(normalizedCode).emit('game_start', snapshot);
+      console.log(`[room] ${socket.id} joined ${normalizedCode} — game starting`);
+      cb({ ok: true, code: normalizedCode, snapshot });
+    }
   });
 
   socket.on('action', (action) => {

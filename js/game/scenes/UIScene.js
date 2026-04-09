@@ -19,23 +19,47 @@ export class UIScene extends Phaser.Scene {
   create() {
     const { width: W, height: H } = this.cameras.main;
 
-    // ── Resource bar (top) ────────────────────────────────────────────────────
-    this.add.rectangle(W / 2, 28, W, 48, 0x1a0f05, 0.88).setOrigin(0.5, 0.5);
-    this.add.line(W / 2, 52, 0, 0, W, 0, 0xc8960c, 0.4);
+    // ── Resource bar (top) — fully responsive ────────────────────────────────
+    const barH   = Math.max(36, Math.min(48, Math.floor(H * 0.065)));
+    const barY   = barH / 2 + 2;
+    const iconFs = Math.max(13, Math.min(18, Math.floor(W / 28)));
+    const numFs  = Math.max(11, Math.min(15, Math.floor(W / 34)));
 
-    const resLabels = [
-      { key: 'wood', icon: '🪵', x: 80 },
-      { key: 'stone', icon: '⛰', x: 220 },
-      { key: 'gold', icon: '💰', x: 360 },
-      { key: 'food', icon: '🌾', x: 500 },
+    this.add.rectangle(W / 2, barY, W, barH, 0x1a0f05, 0.92).setOrigin(0.5, 0.5);
+    this.add.line(W / 2, barY + barH / 2, 0, 0, W, 0, 0xc8960c, 0.4);
+
+    const resItems = [
+      { key: 'wood',  icon: '🪵', label: 'Bois'    },
+      { key: 'stone', icon: '⛰',  label: 'Pierre'  },
+      { key: 'gold',  icon: '💰', label: 'Or'      },
+      { key: 'food',  icon: '🌾', label: 'Nourrit.' },
     ];
     this.resTxts = {};
-    for (const r of resLabels) {
-      this.add.text(r.x - 28, 14, r.icon, { fontSize: '18px' });
-      this.resTxts[r.key] = this.add.text(r.x, 14, '0', {
-        fontFamily: 'monospace', fontSize: '15px', color: '#d4c090',
-      });
-    }
+    const segW = W / resItems.length;
+    resItems.forEach((r, i) => {
+      const cx = Math.floor(segW * i + segW / 2);
+      const iconW = iconFs + 2;
+      // Show label only if enough space per segment
+      const showLabel = segW > 110;
+      if (showLabel) {
+        this.add.text(cx - iconW / 2 - 4, barY - barH * 0.28, r.label, {
+          fontFamily: 'sans-serif', fontSize: `${Math.max(9, numFs - 3)}px`, color: '#776644',
+        }).setOrigin(0.5, 0);
+      }
+      this.add.text(cx - iconW, barY + (showLabel ? barH * 0.08 : -barH * 0.22), r.icon, {
+        fontSize: `${iconFs}px`,
+      }).setOrigin(0, 0.5);
+      this.resTxts[r.key] = this.add.text(cx + iconW * 0.1, barY + (showLabel ? barH * 0.08 : -barH * 0.22), '0', {
+        fontFamily: 'monospace', fontSize: `${numFs}px`, color: '#d4c090',
+      }).setOrigin(0, 0.5);
+
+      // Vertical separator (except before first item)
+      if (i > 0) {
+        const sep = this.add.graphics();
+        sep.lineStyle(1, 0x4a3010, 0.5);
+        sep.moveTo(segW * i, 6); sep.lineTo(segW * i, barH - 4); sep.strokePath();
+      }
+    });
 
     // ── Build menu toggle (bottom-right button) ───────────────────────────────
     const btnX = W - 90, btnY = H - 36;
@@ -90,6 +114,7 @@ export class UIScene extends Phaser.Scene {
   // ─── Resources ─────────────────────────────────────────────────────────────
 
   syncResources(res) {
+    if (!this.resTxts) return;
     this.currentResources = res;
     for (const [key, txt] of Object.entries(this.resTxts)) {
       const val = Math.floor(res[key] || 0);

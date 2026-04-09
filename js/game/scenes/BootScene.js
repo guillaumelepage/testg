@@ -95,20 +95,111 @@ export class BootScene extends Phaser.Scene {
   // ─── Resources ────────────────────────────────────────────────────────────
 
   _createResourceTextures() {
-    const defs = [
-      { key: 'res_wood',  c1: 0x5a2a0a, c2: 0x3a7022 },
-      { key: 'res_stone', c1: 0x777777, c2: 0xaaaaaa },
-      { key: 'res_gold',  c1: 0xaa7800, c2: 0xffd700 },
-      { key: 'res_food',  c1: 0xcc6600, c2: 0xffdd44 },
-    ];
-    for (const d of defs) {
+    // ── Full tree (wood resource, alive) ─────────────────────────────────────
+    {
       const g = this.make.graphics({ add: false });
-      g.fillStyle(0x00000022); g.fillEllipse(T/2+2, T/2+4, T*0.7, T*0.2);
-      g.fillStyle(d.c1); g.fillCircle(T/2, T/2, 16);
-      g.fillStyle(d.c2); g.fillCircle(T/2-4, T/2-5, 10);
-      g.fillStyle(0xffffff, 0.3); g.fillCircle(T/2-6, T/2-7, 5);
-      g.lineStyle(1.5, 0x00000044); g.strokeCircle(T/2, T/2, 16);
-      g.generateTexture(d.key, T, T); g.destroy();
+      // Shadow
+      g.fillStyle(0x000000, 0.18); g.fillEllipse(T/2+3, T-5, T*0.72, T*0.18);
+      // Trunk
+      g.fillStyle(0x6b3a1f); g.fillRect(T/2-4, T/2+6, 8, 14);
+      g.fillStyle(0x8a5030); g.fillRect(T/2-2, T/2+6, 3, 14);
+      // Canopy — layered for depth
+      g.fillStyle(0x225a10); g.fillCircle(T/2+5, T/2+5, 11);
+      g.fillStyle(0x2a6a18); g.fillCircle(T/2-5, T/2+2, 13);
+      g.fillStyle(0x3a7a22); g.fillCircle(T/2+2, T/2-3, 14);
+      g.fillStyle(0x4a8a30); g.fillCircle(T/2-2, T/2-7, 10);
+      g.fillStyle(0x5a9838, 0.7); g.fillCircle(T/2-4, T/2-9, 7);
+      g.generateTexture('res_tree', T, T); g.destroy();
+    }
+
+    // ── Tree stump (wood depleted, regrowing) ─────────────────────────────────
+    {
+      const g = this.make.graphics({ add: false });
+      g.fillStyle(0x000000, 0.14); g.fillEllipse(T/2+2, T-9, T*0.58, T*0.14);
+      // Stump body
+      g.fillStyle(0x6b3a1f); g.fillRect(T/2-9, T/2+2, 18, 14);
+      g.fillStyle(0x8a5030); g.fillRect(T/2-7, T/2+2, 5, 14);
+      // Top face with rings
+      g.fillStyle(0x9a6040); g.fillEllipse(T/2, T/2+2, 18, 10);
+      g.lineStyle(1, 0x6b3a1f, 0.7); g.strokeEllipse(T/2, T/2+2, 13, 6);
+      g.lineStyle(1, 0x6b3a1f, 0.4); g.strokeEllipse(T/2, T/2+2, 7, 4);
+      // Small branch stubs
+      g.fillStyle(0x5a2a10); g.fillRect(T/2-12, T/2+5, 4, 4);
+      g.fillStyle(0x5a2a10); g.fillRect(T/2+8, T/2+6, 4, 4);
+      g.generateTexture('res_tree_stump', T, T); g.destroy();
+    }
+
+    // ── Sapling (30–90% regrown, can't gather yet) ───────────────────────────
+    {
+      const g = this.make.graphics({ add: false });
+      g.fillStyle(0x000000, 0.10); g.fillEllipse(T/2+1, T-10, T*0.4, T*0.12);
+      // Thin trunk
+      g.fillStyle(0x7a4a20); g.fillRect(T/2-2, T/2+2, 4, 14);
+      // Small canopy
+      g.fillStyle(0x2a6a18); g.fillCircle(T/2+3, T/2, 8);
+      g.fillStyle(0x3a7a22); g.fillCircle(T/2-2, T/2-3, 9);
+      g.fillStyle(0x5a9838, 0.8); g.fillCircle(T/2, T/2-7, 6);
+      g.generateTexture('res_tree_sapling', T, T); g.destroy();
+    }
+
+    // ── Stone pile ───────────────────────────────────────────────────────────
+    {
+      const g = this.make.graphics({ add: false });
+      g.fillStyle(0x000000, 0.18); g.fillEllipse(T/2+3, T-6, T*0.80, T*0.20);
+      // Rocks stacked
+      g.fillStyle(0x555250); g.fillCircle(T/2+9, T/2+8, 8);
+      g.fillStyle(0x6a6660); g.fillCircle(T/2-8, T/2+5, 10);
+      g.fillStyle(0x7a7874); g.fillCircle(T/2+4, T/2+1, 11);
+      g.fillStyle(0x8c8a88); g.fillCircle(T/2-2, T/2-5, 9);
+      // Highlights
+      g.fillStyle(0xa0a09c); g.fillCircle(T/2-4, T/2-7, 5);
+      g.fillStyle(0x606060); g.fillCircle(T/2+10, T/2+10, 5);
+      g.lineStyle(1, 0x3a3836, 0.5); g.strokeCircle(T/2+4, T/2+1, 11);
+      g.lineStyle(1, 0x3a3836, 0.4); g.strokeCircle(T/2-8, T/2+5, 10);
+      g.generateTexture('res_stone', T, T); g.destroy();
+    }
+
+    // ── Gold ore vein ─────────────────────────────────────────────────────────
+    {
+      const g = this.make.graphics({ add: false });
+      g.fillStyle(0x000000, 0.18); g.fillEllipse(T/2+3, T-6, T*0.80, T*0.20);
+      // Dark rock base
+      g.fillStyle(0x484440); g.fillCircle(T/2+6, T/2+6, 9);
+      g.fillStyle(0x555250); g.fillCircle(T/2-7, T/2+3, 11);
+      g.fillStyle(0x606060); g.fillCircle(T/2+2, T/2-4, 12);
+      // Gold veins in rock
+      g.fillStyle(0xffd700); g.fillRect(T/2-8, T/2-1, 6, 3);
+      g.fillStyle(0xffc000); g.fillRect(T/2+3, T/2+3, 7, 3);
+      g.fillStyle(0xffdd44); g.fillRect(T/2-2, T/2-7, 5, 3);
+      // Gold nuggets (bright spots)
+      g.fillStyle(0xffd700, 0.9); g.fillCircle(T/2+5, T/2-2, 4);
+      g.fillStyle(0xffee88, 0.8); g.fillCircle(T/2+7, T/2-4, 2);
+      g.fillStyle(0xffc000, 0.7); g.fillCircle(T/2-6, T/2+5, 3);
+      g.lineStyle(1, 0x2a2820, 0.5); g.strokeCircle(T/2+2, T/2-4, 12);
+      g.generateTexture('res_gold', T, T); g.destroy();
+    }
+
+    // ── Wheat field ───────────────────────────────────────────────────────────
+    {
+      const g = this.make.graphics({ add: false });
+      // Soil
+      g.fillStyle(0x8a6a30, 0.5); g.fillRect(2, Math.floor(T*0.55), T-4, Math.floor(T*0.42));
+      // Wheat stalks (7 stalks)
+      const stalks = [5, 11, 17, 23, 29, 35, 41];
+      for (const sx of stalks) {
+        const sh = 14 + (sx % 4);  // vary height slightly
+        // Stem
+        g.lineStyle(2, 0xa89040);
+        g.moveTo(sx+1, T-7); g.lineTo(sx+1, T-7-sh); g.strokePath();
+        // Grain head (ear of wheat)
+        g.fillStyle(0xd4a820); g.fillRect(sx-2, T-7-sh-8, 5, 9);
+        g.fillStyle(0xf0c040); g.fillRect(sx-1, T-7-sh-8, 3, 7);
+        // Awns (spikes)
+        g.lineStyle(1, 0xc89830);
+        g.moveTo(sx-2, T-7-sh-2); g.lineTo(sx-5, T-7-sh-6); g.strokePath();
+        g.moveTo(sx+3, T-7-sh-3); g.lineTo(sx+6, T-7-sh-7); g.strokePath();
+      }
+      g.generateTexture('res_food', T, T); g.destroy();
     }
   }
 

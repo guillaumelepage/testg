@@ -8,7 +8,13 @@ const MAP_W = 80;
 const MAP_H = 60;
 
 const TILE_KEYS = ['tile_grass', 'tile_dark_grass', 'tile_water', 'tile_sand', 'tile_dirt', 'tile_forest', 'tile_mountain'];
-const RESOURCE_KEYS = { wood: 'res_wood', stone: 'res_stone', gold: 'res_gold', food: 'res_food' };
+// Wood uses state-based textures; other resources have fixed textures
+const RESOURCE_KEYS = { stone: 'res_stone', gold: 'res_gold', food: 'res_food' };
+function _treeTexKey(node) {
+  if (node.state === 'stump')   return 'res_tree_stump';
+  if (node.state === 'sapling') return 'res_tree_sapling';
+  return 'res_tree';
+}
 
 // Tile indices that block movement (must match GameRoom.js T values)
 const IMPASSABLE = new Set([2, 6]); // WATER=2, MOUNTAIN=6
@@ -42,9 +48,73 @@ export class WorldScene extends Phaser.Scene {
   }
 
   create() {
-    // ── Camera ────────────────────────────────────────────────────────────────
+    // ── Camera bounds (set early so loader uses correct scroll factor) ─────────
     this.cameras.main.setBounds(0, 0, MAP_W * TILE_SIZE, MAP_H * TILE_SIZE);
 
+    // ── Loading overlay (fixed to screen, depth 100) ───────────────────────────
+    const { width: SW, height: SH } = this.scale;
+    const _ld = this._createLoader(SW, SH);
+
+    this._worldReady = false;
+
+    // Defer heavy world-build by one frame so the loader renders first
+    this.time.delayedCall(40, () => {
+      this._buildWorld();
+      this._worldReady = true;
+      _ld.setProgress(1);
+      // Short pause at 100%, then fade out
+      this.time.delayedCall(300, () => {
+        this.tweens.add({
+          targets: _ld.objects,
+          alpha: 0, duration: 450, ease: 'Sine.easeIn',
+          onComplete: () => _ld.objects.forEach(o => o.destroy()),
+        });
+      });
+    });
+  }
+
+  _createLoader(W, H) {
+    const cx = W / 2, cy = H / 2;
+    const barW = Math.min(320, W * 0.7), barH = 12;
+
+    const bg  = this.add.rectangle(cx, cy, W, H, 0x0a0605, 1).setScrollFactor(0).setDepth(100);
+    const emblem = this.add.text(cx, cy - 60, '🏰', { fontSize: '48px' }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+    const title  = this.add.text(cx, cy - 4,  'CHARGEMENT DE LA PARTIE', {
+      fontFamily: 'Georgia, serif', fontSize: '16px', color: '#c8960c',
+      shadow: { offsetX: 1, offsetY: 1, color: '#000', blur: 4, fill: true },
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+
+    // Progress bar background
+    const barBg = this.add.rectangle(cx, cy + 28, barW, barH, 0x2a1a0a, 1)
+      .setStrokeStyle(1, 0x4a3010).setScrollFactor(0).setDepth(101);
+    // Progress fill (starts at width=0)
+    const fill  = this.add.rectangle(cx - barW / 2, cy + 28, 1, barH - 2, 0xc8960c, 1)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(102);
+
+    const hint = this.add.text(cx, cy + 52, 'Génération du monde médiéval...', {
+      fontFamily: 'sans-serif', fontSize: '12px', color: '#555533',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
+
+    // Pulsing dots animation
+    let dot = 0;
+    const dotTimer = this.time.addEvent({ delay: 380, loop: true, callback: () => {
+      const dots = ['·  ·  ·', '●  ·  ·', '●  ●  ·', '●  ●  ●'][dot++ % 4];
+      hint.setText(`Génération du monde médiéval  ${dots}`);
+    }});
+
+    const objects = [bg, emblem, title, barBg, fill, hint];
+
+    return {
+      objects,
+      setProgress(pct) {
+        fill.setDisplaySize(Math.max(2, barW * pct), barH - 2);
+        dotTimer.remove();
+        hint.setText('Prêt !');
+      },
+    };
+  }
+
+  _buildWorld() {
     // ── Ground (baked into one RenderTexture) ─────────────────────────────────
     const rt = this.add.renderTexture(0, 0, MAP_W * TILE_SIZE, MAP_H * TILE_SIZE).setOrigin(0);
     for (let y = 0; y < MAP_H; y++) {
@@ -82,9 +152,8 @@ export class WorldScene extends Phaser.Scene {
     this.input.on('pointermove', this._onMouseMove,   this);
     this.input.on('pointerup',   this._onPointerUp,   this);
 
-    // Touch drag / pinch state
-    this._drag = null;        // { x, y, camX, camY, moved }
-    this._pinch = null;       // { dist, zoom }
+    this._drag = null;
+    this._pinch = null;
 
     // ── Keyboard ──────────────────────────────────────────────────────────────
     this.cursors  = this.input.keyboard?.createCursorKeys();
@@ -98,8 +167,8 @@ export class WorldScene extends Phaser.Scene {
     // ── Selection ring ────────────────────────────────────────────────────────
     this.selectionRing = this.add.image(0, 0, 'selection_ring').setVisible(false).setDepth(5);
 
-    // ── Gathering badge (small icon following gathering workers) ──────────────
-    this.gatherBadges = new Map(); // unitId -> text
+    // ── Gathering badges ──────────────────────────────────────────────────────
+    this.gatherBadges = new Map();
 
     // ── Zoom: mouse wheel ─────────────────────────────────────────────────────
     this.input.on('wheel', (ptr, _obj, _dx, dy) => {
@@ -113,30 +182,31 @@ export class WorldScene extends Phaser.Scene {
     });
 
     // ── Fog of war ────────────────────────────────────────────────────────────
-    // depth 20: above all world objects (units are 6, badges 8)
     this.fogGfx = this.add.graphics().setDepth(20);
     this._updateFog();
 
     // ── Network ───────────────────────────────────────────────────────────────
     socketManager
-      .on('state_update', (data) => this._applyStateUpdate(data.shared))
-      .on('battle_start', (data) => this._enterBattle(data.battle))
-      .on('battle_update', (data) => this._applyStateUpdate(data.shared))
-      .on('battle_end',   (data) => this._applyStateUpdate(data.shared))
-      .on('player_left',  ()     => this.scene.get('UI')?.showMessage('Votre allié a quitté la partie !', 0xff4444))
-      .on('npc_interact', (data) => this._showNpcDialogue(data.npc, data.heroId));
+      .on('state_update',   (data) => this._applyStateUpdate(data.shared))
+      .on('battle_start',   (data) => this._enterBattle(data.battle))
+      .on('battle_update',  (data) => this._applyStateUpdate(data.shared))
+      .on('battle_end',     (data) => this._applyStateUpdate(data.shared))
+      .on('player_left',    ()     => this.scene.get('UI')?.showMessage('Votre allié a quitté la partie !', 0xff4444))
+      .on('player_joined',  (data) => this.scene.get('UI')?.showMessage(`${data.name} a rejoint la partie !`, 0x44cc88))
+      .on('npc_interact',   (data) => this._showNpcDialogue(data.npc, data.heroId));
 
     this.mySocketId = socketManager.socket?.id;
 
     // ── HUD ───────────────────────────────────────────────────────────────────
     this.scene.launch('UI', { shared: this.shared, onBuild: (type) => this._enterBuildMode(type) });
 
-    // Center camera on first town hall
+    // Center camera on first player town hall
     const th = this.shared.buildings.find(b => b.type === 'town_hall');
     if (th) this.cameras.main.centerOn((th.x + 1) * TILE_SIZE, (th.y + 1) * TILE_SIZE);
   }
 
   update() {
+    if (!this._worldReady) return;
     this._handleCameraScroll();
     this._updateSelectionRing();
     this._updateGatherBadges();
@@ -276,17 +346,26 @@ export class WorldScene extends Phaser.Scene {
     const tileIdx  = this.mapData[ty]?.[tx];
     const walkable = tileIdx !== undefined && !IMPASSABLE.has(tileIdx);
 
-    // Hover highlight
+    // Hover highlight — red for attackable targets, white otherwise
     this.hoverGfx.clear();
     if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H) {
-      this.hoverGfx.lineStyle(1, 0xffffff, 0.18);
-      this.hoverGfx.strokeRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      const isAttackable = unit && (unit.owner === 'enemy' || unit.owner === 'neutral') && this.selectedUnit;
+      if (isAttackable) {
+        this.hoverGfx.lineStyle(2, 0xff3322, 0.75);
+        this.hoverGfx.strokeRect(tx * TILE_SIZE + 1, ty * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+        this.hoverGfx.fillStyle(0xff3322, 0.10);
+        this.hoverGfx.fillRect(tx * TILE_SIZE + 1, ty * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      } else {
+        this.hoverGfx.lineStyle(1, 0xffffff, 0.18);
+        this.hoverGfx.strokeRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      }
     }
 
     // Cursor icon
     if (unit) {
-      if (unit.owner === 'enemy' && this.selectedUnit) this._setCursor('crosshair');
-      else                                              this._setCursor('pointer');
+      if ((unit.owner === 'enemy' || unit.owner === 'neutral') && this.selectedUnit) this._setCursor('crosshair');
+      else if (unit.owner === 'player') this._setCursor('pointer');
+      else                              this._setCursor('default');
     } else if (resource && this.selectedUnit?.type === 'paysan') {
       this._setCursor('cell');
     } else if (building) {
@@ -330,10 +409,11 @@ export class WorldScene extends Phaser.Scene {
     // Unit at tile?
     const unit = this.shared.units.find(u => u.x === tx && u.y === ty);
     if (unit) {
-      if (this.selectedUnit && unit.owner === 'enemy') {
+      if (this.selectedUnit && (unit.owner === 'enemy' || unit.owner === 'neutral')) {
+        // Attack — move selected unit toward enemy/mob
         socketManager.sendAction({ type: 'MOVE_UNIT', unitId: this.selectedUnit.id, tx, ty });
         this._deselectAll();
-      } else if (unit.owner !== 'enemy') {
+      } else if (unit.owner === 'player') {
         this._selectUnit(unit);
       }
       return;
@@ -419,6 +499,12 @@ export class WorldScene extends Phaser.Scene {
 
     for (const node of this.shared.resourceNodes) {
       if (node.amount <= 0) continue;
+      // Stump/sapling = can't gather yet, show dimmer indicator
+      if (node.type === 'wood' && node.state && node.state !== 'alive') {
+        this.resHighlightGfx.lineStyle(1, 0x887755, 0.35);
+        this.resHighlightGfx.strokeCircle(node.x * TILE_SIZE + TILE_SIZE / 2, node.y * TILE_SIZE + TILE_SIZE / 2, 22);
+        continue;
+      }
       const px = node.x * TILE_SIZE + TILE_SIZE / 2;
       const py = node.y * TILE_SIZE + TILE_SIZE / 2;
       const colors = { wood: 0x88cc44, stone: 0xaaaaaa, gold: 0xffd700, food: 0xffaa00 };
@@ -455,11 +541,15 @@ export class WorldScene extends Phaser.Scene {
   // ─── Spawn helpers ────────────────────────────────────────────────────────
 
   _spawnResource(node) {
+    const texKey = node.type === 'wood'
+      ? _treeTexKey(node)
+      : (RESOURCE_KEYS[node.type] || 'res_stone');
+    const scale = node.type === 'wood' ? (node.state === 'sapling' ? 0.55 : 0.9) : 0.82;
     const img = this.add.image(
       node.x * TILE_SIZE + TILE_SIZE / 2,
       node.y * TILE_SIZE + TILE_SIZE / 2,
-      RESOURCE_KEYS[node.type] || 'res_food'
-    ).setDepth(2).setScale(0.7);
+      texKey
+    ).setDepth(2).setScale(scale);
     this.resourceObjects.set(node.id, img);
   }
 
@@ -718,9 +808,15 @@ export class WorldScene extends Phaser.Scene {
     // Update resource visuals
     for (const node of shared.resourceNodes) {
       const obj = this.resourceObjects.get(node.id);
-      if (obj) {
-        obj.setAlpha(node.amount > 0 ? 1 : 0.2);
-        obj.setScale(0.4 + 0.3 * (node.amount / 400));
+      if (!obj) continue;
+      if (node.type === 'wood') {
+        const newKey = _treeTexKey(node);
+        if (obj.texture?.key !== newKey) obj.setTexture(newKey);
+        const scale = node.state === 'sapling' ? 0.55 : 0.9;
+        obj.setScale(scale).setAlpha(1);
+      } else {
+        obj.setAlpha(node.amount > 0 ? 1 : 0.25);
+        obj.setScale(0.45 + 0.37 * Math.max(0, node.amount / (node.maxAmount || 400)));
       }
     }
 

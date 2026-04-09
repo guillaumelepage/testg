@@ -95,7 +95,11 @@ function generateMap(seed) {
         const dP1 = Math.abs(x - 5) + Math.abs(y - 5);
         const dP2 = Math.abs(x - (MAP_WIDTH - 6)) + Math.abs(y - (MAP_HEIGHT - 6));
         if (dP1 > 6 && dP2 > 6) {
-          resources.push({ id: `res_${resources.length}`, type: def.type, x, y, amount: def.amount });
+          resources.push({
+            id: `res_${resources.length}`, type: def.type, x, y,
+            amount: def.amount, maxAmount: def.amount,
+            state: 'alive', regrowTimer: 0,
+          });
           placed++;
         }
       }
@@ -192,15 +196,32 @@ class GameRoom {
     return true;
   }
 
+  // Find nearest walkable tile (not WATER, not MOUNTAIN) from (preferX, preferY)
+  _findValidSpawn(preferX, preferY) {
+    for (let radius = 0; radius <= 12; radius++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (radius > 0 && Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+          const nx = preferX + dx, ny = preferY + dy;
+          if (nx < 1 || nx >= MAP_WIDTH - 1 || ny < 1 || ny >= MAP_HEIGHT - 1) continue;
+          const t = this.map[ny][nx];
+          if (t !== T.WATER && t !== T.MOUNTAIN) return { x: nx, y: ny };
+        }
+      }
+    }
+    return { x: preferX, y: preferY }; // fallback (shouldn't happen)
+  }
+
   // Called when both players are connected (state → 'playing')
   startGame() {
-    const spawnPoints = [
-      { x: 7, y: 5 },
-      { x: MAP_WIDTH - 8, y: MAP_HEIGHT - 6 },
+    const preferredSpawns = [
+      { x: 8, y: 6 },
+      { x: MAP_WIDTH - 9, y: MAP_HEIGHT - 7 },
     ];
     this.playerOrder.forEach((socketId, i) => {
       const player = this.players[socketId];
-      const sp = spawnPoints[i] || spawnPoints[0];
+      const pref = preferredSpawns[i] || preferredSpawns[0];
+      const sp = this._findValidSpawn(pref.x, pref.y);
       this._addHero(player.heroType || 'roi_guerrier', sp.x, sp.y, socketId);
     });
   }
@@ -230,6 +251,23 @@ class GameRoom {
 
   isFull()  { return this.playerOrder.length >= 2; }
   isEmpty() { return this.playerOrder.length === 0; }
+
+  // Spawn a hero for a player who joins a game already in progress
+  addLateJoiner(socketId) {
+    const player = this.players[socketId];
+    if (!player) return;
+    // Pick the spawn index based on how many players are already in
+    const spawnPrefs = [
+      { x: 8, y: 6 },
+      { x: MAP_WIDTH - 9, y: MAP_HEIGHT - 7 },
+      { x: 8, y: MAP_HEIGHT - 7 },
+      { x: MAP_WIDTH - 9, y: 6 },
+    ];
+    const idx = Math.max(0, this.playerOrder.length - 1);
+    const pref = spawnPrefs[idx % spawnPrefs.length];
+    const sp = this._findValidSpawn(pref.x, pref.y);
+    this._addHero(player.heroType || 'roi_guerrier', sp.x, sp.y, socketId);
+  }
 
   getStateSnapshot() {
     return {
@@ -317,7 +355,14 @@ class GameRoom {
       if (unit.x === unit.targetX && unit.y === unit.targetY) {
         unit.targetX = null; unit.targetY = null; continue;
       }
-      this._stepToward(unit, unit.targetX, unit.targetY);
+      // Fractional-accumulator speed: heroes 1.8x, attack units 1.4x, paysans 1.0x
+      const speed = UNIT_SPEED[unit.type] || 1.0;
+      unit._moveAccum = (unit._moveAccum || 0) + speed;
+      while (unit._moveAccum >= 1) {
+        unit._moveAccum -= 1;
+        if (unit.x === unit.targetX && unit.y === unit.targetY) break;
+        this._stepToward(unit, unit.targetX, unit.targetY);
+      }
       changed = true;
     }
     return changed;
@@ -329,6 +374,8 @@ class GameRoom {
     const unit = this.shared.units.find(u => u.id === unitId);
     const node = this.shared.resourceNodes.find(r => r.id === resourceId);
     if (!unit || !node || node.amount <= 0) return null;
+    // Trees that are regrowing cannot be gathered
+    if (node.type === 'wood' && node.state && node.state !== 'alive') return null;
     unit.targetResource = resourceId;
     unit.gatherState    = 'to_resource';
     unit.inventory      = 0;
@@ -355,6 +402,11 @@ class GameRoom {
           changed = true; break;
         }
         case 'gathering': {
+          // Tree regrowing mid-gather → abort
+          if (node?.type === 'wood' && node.state && node.state !== 'alive') {
+            unit.gatherState = unit.inventory > 0 ? 'to_deposit' : 'idle';
+            unit.targetResource = null; changed = true; break;
+          }
           if (!node || node.amount <= 0) {
             unit.gatherState = unit.inventory > 0 ? 'to_deposit' : 'idle';
             if (!unit.inventory) unit.targetResource = null;
@@ -362,6 +414,11 @@ class GameRoom {
             const take = Math.min(5, node.amount, unit.inventoryMax - unit.inventory);
             node.amount -= take;
             unit.inventory += take;
+            // When a wood node hits 0, mark it as stump → will regrow
+            if (node.amount <= 0 && node.type === 'wood') {
+              node.state = 'stump';
+              node.regrowTimer = 0;
+            }
             if (unit.inventory >= unit.inventoryMax || node.amount <= 0) {
               unit.gatherState = 'to_deposit';
             }
@@ -460,6 +517,27 @@ class GameRoom {
       const bd = Math.abs(best.x - x) + Math.abs(best.y - y);
       return d < bd ? b : best;
     });
+  }
+
+  // ─── Resource regen (trees regrow after being cut) ────────────────────────
+
+  tickResourceRegen() {
+    let changed = false;
+    const REGROW_TICKS = 90; // 90 s to full regrow
+    for (const node of this.shared.resourceNodes) {
+      if (node.type !== 'wood' || !node.state || node.state === 'alive') continue;
+      node.regrowTimer = (node.regrowTimer || 0) + 1;
+      if (node.regrowTimer >= REGROW_TICKS) {
+        node.state = 'alive';
+        node.amount = node.maxAmount || 200;
+        node.regrowTimer = 0;
+        changed = true;
+      } else if (node.state === 'stump' && node.regrowTimer >= Math.floor(REGROW_TICKS * 0.35)) {
+        node.state = 'sapling';
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   // ─── Construction ─────────────────────────────────────────────────────────
@@ -843,6 +921,18 @@ const TYPE_CHART = {
   LEGER:     { LOURD: 0.7, LEGER: 1,   CAVALERIE: 1,   MAGIE: 1.2 },
   CAVALERIE: { LOURD: 1.5, LEGER: 1,   CAVALERIE: 1,   MAGIE: 0.7 },
   MAGIE:     { LOURD: 1.5, LEGER: 0.8, CAVALERIE: 1.2, MAGIE: 1   },
+};
+
+// ── Unit movement speed multipliers (tiles per tick, fractional accumulator) ──
+const UNIT_SPEED = {
+  // Heroes × 1.8
+  roi_guerrier: 1.8, chasseresse: 1.8, mage_arcane: 1.8,
+  // Attack troops × 1.4
+  homme_armes: 1.4, archer: 1.4, chevalier: 1.4,
+  garde_roi: 1.4, croise: 1.4, mercenaire: 1.4,
+  compagnie_loup: 1.4, frere_epee: 1.4, banniere_rouge: 1.4,
+  // Gatherer — unchanged
+  paysan: 1.0,
 };
 
 const UNIT_MOVE_TYPE = {

@@ -22,7 +22,7 @@ class SocketManager {
     // Forwarded server events
     const events = [
       'game_start', 'state_update', 'battle_start', 'battle_update',
-      'battle_end', 'player_left', 'npc_interact', 'error',
+      'battle_end', 'player_left', 'player_joined', 'npc_interact', 'error',
     ];
     for (const ev of events) {
       this.socket.on(ev, (data) => this._emit(ev, data));
