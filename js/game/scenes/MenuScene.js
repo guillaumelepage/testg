@@ -121,7 +121,9 @@ export class MenuScene extends Phaser.Scene {
     this._buildTutorialBtn(W, H);
 
     // ── Keyboard handler ────────────────────────────────────────────────────
+    // Desktop: Phaser keyboard handler (skipped when native input has focus)
     this.input.keyboard?.on('keydown', (e) => {
+      if (document.activeElement === this._nativeEl) return; // native input handles it
       if (!this.activeInput) return;
       const s = this.activeInput.state;
       if (e.key === 'Backspace') {
@@ -1004,18 +1006,78 @@ export class MenuScene extends Phaser.Scene {
     inp.state.active = true;
     inp.bg.setStrokeStyle(2, 0xffd700);
     this._renderInput(inp);
+    // Open mobile keyboard (also works on desktop)
+    const el = this._getNativeInput();
+    el.maxLength = inp.state.maxLen || 30;
+    el.value = inp.state.value || '';
+    el.oninput = () => {
+      if (!this.activeInput) return;
+      this.activeInput.state.value = el.value;
+      this._renderInput(this.activeInput);
+    };
+    el.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); this._blurAll(); }
+      else if (e.key === 'Tab') {
+        e.preventDefault();
+        const idx = this.allInputs.indexOf(this.activeInput);
+        if (idx >= 0) this._focusInput(this.allInputs[(idx + 1) % this.allInputs.length]);
+      }
+    };
+    el.onblur = () => {
+      // Delay so button pointerdown still fires before blur clears activeInput
+      setTimeout(() => { if (this.activeInput === inp) this._blurAll(); }, 200);
+    };
+    el.focus();
   }
 
   _blurAll() {
     for (const i of this.allInputs) {
       i.state.active = false;
-      i.bg.setStrokeStyle(1, 0x4a3010);
+      if (i.bg?.active) i.bg.setStrokeStyle(1, 0x4a3010);
       this._renderInput(i);
     }
     this.activeInput = null;
+    if (this._nativeEl) {
+      this._nativeEl.oninput = null;
+      this._nativeEl.onkeydown = null;
+      this._nativeEl.onblur = null;
+      this._nativeEl.blur();
+    }
+  }
+
+  _getNativeInput() {
+    if (!this._nativeEl) {
+      const el = document.createElement('input');
+      el.type = 'text';
+      el.setAttribute('autocomplete', 'off');
+      el.setAttribute('autocorrect', 'off');
+      el.setAttribute('autocapitalize', 'off');
+      el.setAttribute('spellcheck', 'false');
+      // Must be in the viewport and font-size ≥ 16px to prevent iOS zoom
+      Object.assign(el.style, {
+        position: 'fixed', left: '50%', top: '40%',
+        width: '240px', height: '40px',
+        transform: 'translateX(-50%)',
+        opacity: '0.01',         // nearly invisible
+        border: 'none', outline: 'none',
+        background: 'transparent', color: 'transparent',
+        fontSize: '16px',        // prevents iOS auto-zoom
+        zIndex: '9999',
+        pointerEvents: 'none',   // clicks fall through to Phaser
+      });
+      document.body.appendChild(el);
+      this._nativeEl = el;
+      // Clean up on scene shutdown
+      this.events.once('shutdown', () => {
+        el.remove(); this._nativeEl = null;
+      });
+    }
+    this._nativeEl.style.pointerEvents = 'auto'; // allow focus
+    return this._nativeEl;
   }
 
   _renderInput(inp) {
+    if (!inp.txt?.active) return;
     const s = inp.state;
     if (s.value)       inp.txt.setText(s.value).setColor('#ffffff');
     else if (s.active) inp.txt.setText('|').setColor('#c8960c');

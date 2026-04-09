@@ -118,6 +118,26 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Reconnection: player rejoins a game in progress with their old player name
+  socket.on('rejoin_game', ({ code, name }) => {
+    const room = rooms.get(code);
+    if (!room || room.state !== 'playing') return;
+    // Find existing player slot by name
+    const oldId = Object.keys(room.players).find(id => room.players[id].name === name);
+    if (!oldId) return;
+    const player = room.players[oldId];
+    delete room.players[oldId];
+    room.players[socket.id] = { ...player, socketId: socket.id };
+    room.playerOrder = room.playerOrder.map(id => id === oldId ? socket.id : id);
+    // Reassign hero ownership
+    const hero = room.shared.units.find(u => u.isHero && u.heroOwner === oldId);
+    if (hero) hero.heroOwner = socket.id;
+    socket.join(code);
+    socket.data.roomCode = code;
+    socket.emit('game_start', room.getStateSnapshot());
+    console.log(`[room] ${socket.id} rejoined ${code} (was ${oldId})`);
+  });
+
   socket.on('action', (action) => {
     const code = socket.data.roomCode;
     const room = rooms.get(code);

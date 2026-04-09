@@ -44,15 +44,17 @@ export class UIScene extends Phaser.Scene {
       const iconW = iconFs + 2;
       // Show label only if enough space per segment
       const showLabel = segW > 110;
+      // When label shown: label in upper half, icon+number in lower half
+      const iconNumY = barY + (showLabel ? barH * 0.22 : 0);
       if (showLabel) {
-        this.add.text(cx - iconW / 2 - 4, barY - barH * 0.28, r.label, {
+        this.add.text(cx, barY - barH * 0.22, r.label, {
           fontFamily: 'sans-serif', fontSize: `${Math.max(9, numFs - 3)}px`, color: '#776644',
-        }).setOrigin(0.5, 0);
+        }).setOrigin(0.5, 0.5);
       }
-      this.add.text(cx - iconW, barY + (showLabel ? barH * 0.08 : -barH * 0.22), r.icon, {
+      this.add.text(cx - iconW, iconNumY, r.icon, {
         fontSize: `${iconFs}px`,
       }).setOrigin(0, 0.5);
-      this.resTxts[r.key] = this.add.text(cx + iconW * 0.1, barY + (showLabel ? barH * 0.08 : -barH * 0.22), '0', {
+      this.resTxts[r.key] = this.add.text(cx + iconW * 0.1, iconNumY, '0', {
         fontFamily: 'monospace', fontSize: `${numFs}px`, color: '#d4c090',
       }).setOrigin(0, 0.5);
 
@@ -123,7 +125,9 @@ export class UIScene extends Phaser.Scene {
   }
 
   _onResize() {
-    // Rebuild the whole scene with the saved init data so all positions use fresh W/H
+    // Null out resTxts BEFORE restart — WorldScene.update() may call syncResources
+    // between here and scene recreation; destroyed Text objects would crash on setText.
+    this.resTxts = null;
     this.scene.restart(this._savedData || {});
   }
 
@@ -133,6 +137,7 @@ export class UIScene extends Phaser.Scene {
     if (!this.resTxts) return;
     this.currentResources = res;
     for (const [key, txt] of Object.entries(this.resTxts)) {
+      if (!txt?.active) continue; // guard: text destroyed during resize transition
       const val = Math.floor(res[key] || 0);
       txt.setText(`${val}`);
       txt.setColor(val < 30 ? '#ff6666' : '#d4c090');
@@ -154,12 +159,13 @@ export class UIScene extends Phaser.Scene {
   // ─── Messages ──────────────────────────────────────────────────────────────
 
   showMessage(msg, color = 0xffd700) {
+    if (!this.messageTxt?.active) return;
     if (this.messageTimeout) this.time.removeEvent(this.messageTimeout);
     this.messageTxt
       .setText(msg)
       .setColor(`#${color.toString(16).padStart(6, '0')}`)
       .setVisible(true);
-    this.messageTimeout = this.time.delayedCall(3500, () => this.messageTxt.setVisible(false));
+    this.messageTimeout = this.time.delayedCall(3500, () => this.messageTxt?.setVisible(false));
   }
 
   // ─── Unit info panel ───────────────────────────────────────────────────────
@@ -312,11 +318,13 @@ export class UIScene extends Phaser.Scene {
     const data = BUILDING_DATA[building.type] || {};
     const { width: W, height: H } = this.cameras.main;
     const px = W - PANEL_W - 10;
-    const panelH = 240;
-    const py = H - panelH - 10;
+    const py = H - (data.produces?.length ? 90 + data.produces.length * 48 + 8 : 120) - 10;
 
+    const produces = data.produces || [];
+    const rowH = 48;
+    const dynPanelH = produces.length ? 90 + produces.length * rowH + 8 : 120;
     const items = [];
-    const bg = this.add.rectangle(px + PANEL_W / 2, py + panelH / 2, PANEL_W, panelH, 0x1a0f05, 0.92)
+    const bg = this.add.rectangle(px + PANEL_W / 2, py + dynPanelH / 2, PANEL_W, dynPanelH, 0x1a0f05, 0.92)
       .setStrokeStyle(2, 0xc8960c, 0.7);
     items.push(bg);
 
@@ -328,15 +336,16 @@ export class UIScene extends Phaser.Scene {
       wordWrap: { width: PANEL_W - 20 },
     }));
 
-    if (data.produces?.length) {
-      items.push(this.add.text(px + 10, py + 72, 'Entraîner :', {
+    if (produces.length) {
+      items.push(this.add.text(px + 10, py + 62, 'Entraîner :', {
         fontFamily: 'sans-serif', fontSize: '12px', color: '#c8a060',
       }));
-      data.produces.forEach((unitType, i) => {
+      produces.forEach((unitType, i) => {
         const us = UNIT_STATS[unitType];
         const cost = UNIT_COSTS[unitType] || {};
         const costStr = Object.entries(cost).map(([k, v]) => `${v}${k[0].toUpperCase()}`).join(' ');
-        const btnBg = this.add.rectangle(px + PANEL_W / 2, py + 94 + i * 44, PANEL_W - 20, 38, 0x2a1a06, 0.9)
+        const rowY = py + 82 + i * rowH;
+        const btnBg = this.add.rectangle(px + PANEL_W / 2, rowY + rowH / 2 - 4, PANEL_W - 20, rowH - 6, 0x2a1a06, 0.9)
           .setInteractive({ useHandCursor: true })
           .setStrokeStyle(1, 0x886630, 0.8);
         btnBg.on('pointerover', () => btnBg.setStrokeStyle(2, 0xffd700));
@@ -344,13 +353,13 @@ export class UIScene extends Phaser.Scene {
         btnBg.on('pointerdown', () => onTrain(unitType));
 
         items.push(btnBg);
-        items.push(this.add.text(px + 16, py + 83 + i * 44, us?.label || unitType, {
+        items.push(this.add.text(px + 16, rowY + 6, us?.label || unitType, {
           fontFamily: 'serif', fontSize: '13px', color: '#d4c090',
         }));
-        items.push(this.add.text(px + PANEL_W - 30, py + 85 + i * 44, costStr, {
+        items.push(this.add.text(px + PANEL_W - 30, rowY + 6, costStr, {
           fontFamily: 'monospace', fontSize: '10px', color: '#c8960c',
         }).setOrigin(1, 0));
-        items.push(this.add.text(px + 16, py + 97 + i * 44, `HP:${us?.maxHp} ATK:${us?.atk} DEF:${us?.def}`, {
+        items.push(this.add.text(px + 16, rowY + 24, `HP:${us?.maxHp} ATK:${us?.atk} DEF:${us?.def}`, {
           fontFamily: 'monospace', fontSize: '9px', color: '#666644',
         }));
       });
@@ -465,9 +474,18 @@ export class UIScene extends Phaser.Scene {
     const mmX = W - mmW - 10, mmY = 56;
     const scaleX = mmW / 80, scaleY = mmH / 60;
 
-    // Background
-    this.add.rectangle(mmX + mmW / 2, mmY + mmH / 2, mmW + 4, mmH + 4, 0x1a0f05)
-      .setStrokeStyle(1, 0xc8960c, 0.6);
+    // Clickable background — moves WorldScene camera on click
+    const mmBg = this.add.rectangle(mmX + mmW / 2, mmY + mmH / 2, mmW + 4, mmH + 4, 0x1a0f05)
+      .setStrokeStyle(1, 0xc8960c, 0.6)
+      .setInteractive({ useHandCursor: true });
+    mmBg.on('pointerdown', (ptr) => {
+      // Convert minimap pixel to world pixel (TILE_SIZE = 48, map = 80×60 tiles)
+      const dx = Phaser.Math.Clamp(ptr.x - mmX, 0, mmW);
+      const dy = Phaser.Math.Clamp(ptr.y - mmY, 0, mmH);
+      const worldX = (dx / mmW) * 80 * 48;
+      const worldY = (dy / mmH) * 60 * 48;
+      this.scene.get('World')?.cameras.main.centerOn(worldX, worldY);
+    });
 
     // Static minimap graphics (terrain)
     this.minimapGfx = this.add.graphics();
@@ -479,7 +497,7 @@ export class UIScene extends Phaser.Scene {
     this._mmScaleX = scaleX; this._mmScaleY = scaleY;
 
     // Title
-    this.add.text(mmX, mmY - 12, 'CARTE', {
+    this.add.text(mmX, mmY - 12, 'CARTE  (clic = déplacer)', {
       fontFamily: 'monospace', fontSize: '9px', color: '#886630',
     });
   }

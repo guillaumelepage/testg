@@ -315,23 +315,10 @@ class GameRoom {
       return { type: 'STATE_UPDATE', shared: this.shared };
     }
 
-    // Neutral mob at destination → auto-fight (instant)
+    // Neutral mob at destination → turn-based battle (same system as enemies)
     const neutral = this.shared.units.find(u => u.x === tx && u.y === ty && u.owner === 'neutral');
     if (neutral) {
-      const nStats = UNIT_BASE_STATS[neutral.type];
-      const dmg = Math.floor((nStats?.atk || 8) * 0.4);
-      unit.hp = Math.max(1, unit.hp - dmg);
-      const mobType = neutral.type;
-      this.shared.units = this.shared.units.filter(u => u.id !== neutral.id);
-      const rewardTypes = ['wood', 'stone', 'gold', 'food'];
-      const rType = rewardTypes[Math.floor(Math.random() * 4)];
-      this.shared.resources[rType] = (this.shared.resources[rType] || 0) + (nStats?.reward || 10);
-      // Quest progress: kill_mobs
-      if (unit.isHero) this._updateQuestProgress(unit, 'kill_mobs', mobType);
-      // Walk to the mob's tile after fighting
-      unit.targetX = tx; unit.targetY = ty;
-      unit.gatherState = 'idle'; unit.targetResource = null;
-      return { type: 'STATE_UPDATE', shared: this.shared };
+      return this._startBattle(unit, neutral);
     }
 
     // Enemy unit at destination → battle (immediate)
@@ -1018,6 +1005,16 @@ class GameRoom {
 
     if (enemyUnit.hp <= 0) {
       log.push(`${enemyUnit.type} est vaincu !`);
+      // Neutral mob reward (mobs and village guards)
+      if (enemyUnit.owner === 'neutral') {
+        const nStats = UNIT_BASE_STATS[enemyUnit.type];
+        const reward = nStats?.reward || enemyUnit.reward || 10;
+        const rTypes = ['wood', 'stone', 'gold', 'food'];
+        const rType  = rTypes[Math.floor(Math.random() * rTypes.length)];
+        this.shared.resources[rType] = (this.shared.resources[rType] || 0) + reward;
+        log.push(`💰 +${reward} ${rType} !`);
+        if (playerUnit.isHero) this._updateQuestProgress(playerUnit, 'kill_mobs', enemyUnit.type);
+      }
       this.shared.units = this.shared.units.filter(u => u.id !== enemyUnit.id);
       b.currentEnemyIdx++;
       const nextEnemy = this.shared.units.find(u => u.id === b.enemyTeamIds[b.currentEnemyIdx]);

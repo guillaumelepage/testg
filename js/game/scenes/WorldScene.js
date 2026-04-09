@@ -45,7 +45,9 @@ export class WorldScene extends Phaser.Scene {
     this.npcObjects = new Map();
     this.villageObjects = new Map();
     this.visitedTiles = new Set(); // fog of war memory
-    this.mySocketId = null; // set on game_start
+    this.mySocketId = socketManager.socket?.id;
+    // Store own player info for reconnection (socket ID may change on reconnect)
+    this._myPlayer = data.snapshot.players?.find(p => p.socketId === this.mySocketId);
   }
 
   create() {
@@ -197,7 +199,9 @@ export class WorldScene extends Phaser.Scene {
       .on('player_joined',     (data) => this.scene.get('UI')?.showMessage(`${data.name} a rejoint la partie !`, 0x44cc88))
       .on('npc_interact',      (data) => this._showNpcDialogue(data.npc, data.heroId))
       .on('village_captured',  (data) => this._onVillageCaptured(data))
-      .on('arrow_shot',        (data) => this._showArrowShot(data));
+      .on('arrow_shot',        (data) => this._showArrowShot(data))
+      .on('connected',         ()     => this._onReconnected())
+      .on('disconnected',      ()     => this.scene.get('UI')?.showMessage('⚠ Connexion perdue…', 0xff4444));
 
     this.mySocketId = socketManager.socket?.id;
 
@@ -326,8 +330,12 @@ export class WorldScene extends Phaser.Scene {
 
     // Build mode
     if (this.buildMode) {
+      const inTerritory = this._isInTerritory(tx, ty);
       this.buildCursor.setPosition(tx * TILE_SIZE, ty * TILE_SIZE).setVisible(true);
-      this._setCursor('crosshair');
+      // Red cursor + tint when outside territory
+      this.buildCursor.setFillStyle(inTerritory ? 0x00ff00 : 0xff2200, inTerritory ? 0.22 : 0.30);
+      this.buildCursor.setStrokeStyle(2, inTerritory ? 0x00ff00 : 0xff2200, inTerritory ? 0.8 : 0.9);
+      this._setCursor(inTerritory ? 'crosshair' : 'not-allowed');
       this.hoverGfx.clear();
 
       // Wall drag: paint while holding (mouse or touch)
@@ -397,6 +405,10 @@ export class WorldScene extends Phaser.Scene {
     const ty = Math.floor(wp.y / TILE_SIZE);
 
     if (this.buildMode) {
+      if (!this._isInTerritory(tx, ty)) {
+        this.scene.get('UI')?.showMessage('⚠ Hors territoire ! Capturez un village pour étendre votre zone.', 0xff6622);
+        return;
+      }
       socketManager.sendAction({ type: 'PLACE_BUILDING', buildingType: this.buildMode, tx, ty });
       if (this.buildMode === 'wall') {
         // Stay in wall mode — allow painting more walls
@@ -541,11 +553,22 @@ export class WorldScene extends Phaser.Scene {
 
   // ─── Build mode ───────────────────────────────────────────────────────────
 
+  // Returns true if tile (tx,ty) is within player territory (mirrors server logic)
+  _isInTerritory(tx, ty) {
+    if (this.buildMode === 'wall') return true; // walls have no restriction
+    const TOWN_R = 22, VILLAGE_R = 16;
+    const halls = this.shared.buildings.filter(b => b.type === 'town_hall' && b.owner !== 'enemy');
+    const captured = (this.shared.villages || []).filter(v => v.capturedBy);
+    return halls.some(h => Math.abs(h.x - tx) + Math.abs(h.y - ty) <= TOWN_R)
+        || captured.some(v => Math.abs(v.x - tx) + Math.abs(v.y - ty) <= VILLAGE_R);
+  }
+
   _enterBuildMode(type) {
     this.buildMode = type;
     this.buildCursor.setVisible(true);
     this.scene.get('UI')?.showMessage(`Cliquez pour poser : ${BUILDING_DATA[type]?.label}`, 0xffd700);
     this.scene.get('UI')?.showCancelBtn();
+    this._drawTerritoryOverlay();
   }
 
   _cancelBuildMode() {
@@ -553,6 +576,32 @@ export class WorldScene extends Phaser.Scene {
     this.buildCursor.setVisible(false);
     this._setCursor('default');
     this.scene.get('UI')?._hideCancelBtn();
+    this.territoryGfx?.clear();
+  }
+
+  _drawTerritoryOverlay() {
+    if (!this.territoryGfx) {
+      this.territoryGfx = this.add.graphics().setDepth(1.6);
+    }
+    const g = this.territoryGfx;
+    g.clear();
+
+    const TOWN_R = 22, VILLAGE_R = 16;
+    const halls = this.shared.buildings.filter(b => b.type === 'town_hall' && b.owner !== 'enemy');
+    const captured = (this.shared.villages || []).filter(v => v.capturedBy);
+
+    for (const h of halls) {
+      const cx = (h.x + 1) * TILE_SIZE, cy = (h.y + 1) * TILE_SIZE;
+      const r = TOWN_R * TILE_SIZE;
+      g.fillStyle(0x44aaff, 0.06); g.fillCircle(cx, cy, r);
+      g.lineStyle(2, 0x44aaff, 0.30); g.strokeCircle(cx, cy, r);
+    }
+    for (const v of captured) {
+      const cx = v.x * TILE_SIZE + TILE_SIZE / 2, cy = v.y * TILE_SIZE + TILE_SIZE / 2;
+      const r = VILLAGE_R * TILE_SIZE;
+      g.fillStyle(0xffd700, 0.05); g.fillCircle(cx, cy, r);
+      g.lineStyle(2, 0xffd700, 0.28); g.strokeCircle(cx, cy, r);
+    }
   }
 
   // ─── Spawn helpers ────────────────────────────────────────────────────────
@@ -723,14 +772,14 @@ export class WorldScene extends Phaser.Scene {
 
       if (village.capturedBy) {
         // Update to captured state (only once)
-        if (objs.tower.texture?.key !== 'village_tower_cap') {
+        if (objs.tower?.active && objs.tower.texture?.key !== 'village_tower_cap') {
           objs.tower.setTexture('village_tower_cap');
           const wx = village.x * TILE_SIZE + TILE_SIZE / 2;
           const wy = village.y * TILE_SIZE + TILE_SIZE / 2;
           this._drawVillageRing(objs.ring, wx, wy, true);
           objs.hpBg.setVisible(false);
           objs.hpFill.setVisible(false);
-          objs.lbl.setText('✦ Village allié').setColor('#ffd700');
+          if (objs.lbl?.active) objs.lbl.setText('✦ Village allié').setColor('#ffd700');
         }
       } else {
         // Update HP bar
@@ -750,6 +799,18 @@ export class WorldScene extends Phaser.Scene {
   }
 
   // Brief animated arrow-shot line between tower and target
+  _onReconnected() {
+    if (!this._worldReady) return;
+    const p = this._myPlayer;
+    if (p && this.snapshot?.code) {
+      // Re-register with server using stored player name
+      socketManager.socket.emit('rejoin_game', { code: this.snapshot.code, name: p.name });
+      this.scene.get('UI')?.showMessage('Reconnexion en cours…', 0xffaa44);
+    } else {
+      this.scene.get('UI')?.showMessage('⚠ Connexion perdue — rechargez la page', 0xff4444);
+    }
+  }
+
   _showArrowShot(data) {
     const fx = this.add.graphics().setDepth(50);
     const x1 = data.fromX * TILE_SIZE + TILE_SIZE / 2;
