@@ -46,18 +46,18 @@ export class BootScene extends Phaser.Scene {
     this.load.image('res_stone',        'assets/resources/stone.svg');
     this.load.image('res_gold',         'assets/resources/gold.svg');
     this.load.image('res_food',         'assets/resources/food.svg');
-    // Building SVGs
-    this.load.image('bld_town_hall',   'assets/buildings/town_hall.svg');
-    this.load.image('bld_house',       'assets/buildings/house.svg');
-    this.load.image('bld_barracks',    'assets/buildings/barracks.svg');
-    this.load.image('bld_farm',        'assets/buildings/farm.svg');
-    this.load.image('bld_mine',        'assets/buildings/mine.svg');
-    this.load.image('bld_lumber_mill', 'assets/buildings/lumber_mill.svg');
-    this.load.image('bld_market',      'assets/buildings/market.svg');
-    this.load.image('bld_tower',       'assets/buildings/tower.svg');
-    this.load.image('bld_church',      'assets/buildings/church.svg');
-    this.load.image('bld_stable',      'assets/buildings/stable.svg');
-    this.load.image('bld_wall',        'assets/buildings/wall.svg');
+    // Building PNGs
+    this.load.image('bld_town_hall',   'assets/buildings/hotel_de_ville.png');
+    this.load.image('bld_house',       'assets/buildings/maison.png');
+    this.load.image('bld_barracks',    'assets/buildings/caserne.png');
+    this.load.image('bld_farm',        'assets/buildings/ferme.png');
+    this.load.image('bld_mine',        'assets/buildings/mine.png');
+    this.load.image('bld_lumber_mill', 'assets/buildings/scierie.png');
+    this.load.image('bld_market',      'assets/buildings/marche.png');
+    this.load.image('bld_tower',       'assets/buildings/tour_de_garde.png');
+    this.load.image('bld_church',      'assets/buildings/eglise.png');
+    this.load.image('bld_stable',      'assets/buildings/ecurie.png');
+    this.load.image('bld_wall',        'assets/buildings/muraille.png');
     this.load.image('village_tower',     'assets/buildings/village_tower.svg');
     this.load.image('village_tower_cap', 'assets/buildings/village_tower_cap.svg');
     // Unit battle sprites (96×96) — world sprites (36×36) generated from these in create()
