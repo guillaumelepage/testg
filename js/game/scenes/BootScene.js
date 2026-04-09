@@ -30,254 +30,46 @@ export class BootScene extends Phaser.Scene {
     });
     this.add.text(w / 2, h * 0.4, 'CONQUÊTE MÉDIÉVALE', { fontFamily: 'serif', fontSize: '36px', color: '#c8960c' }).setOrigin(0.5);
     this.add.text(w / 2, h * 0.55, 'Chargement...', { fontFamily: 'sans-serif', fontSize: '14px', color: '#aaaaaa' }).setOrigin(0.5);
+
+    // Tile SVGs (feTurbulence noise)
+    this.load.image('tile_grass',      'assets/tiles/grass.svg');
+    this.load.image('tile_dark_grass', 'assets/tiles/dark_grass.svg');
+    this.load.image('tile_water',      'assets/tiles/water.svg');
+    this.load.image('tile_sand',       'assets/tiles/sand.svg');
+    this.load.image('tile_forest',     'assets/tiles/forest.svg');
+    this.load.image('tile_mountain',   'assets/tiles/mountain.svg');
+    this.load.image('tile_dirt',       'assets/tiles/dirt.svg');
+    // Resource SVGs
+    this.load.image('res_tree',         'assets/resources/tree.svg');
+    this.load.image('res_tree_stump',   'assets/resources/tree_stump.svg');
+    this.load.image('res_tree_sapling', 'assets/resources/tree_sapling.svg');
+    this.load.image('res_stone',        'assets/resources/stone.svg');
+    this.load.image('res_gold',         'assets/resources/gold.svg');
+    this.load.image('res_food',         'assets/resources/food.svg');
+    // Building SVGs
+    this.load.image('bld_town_hall',   'assets/buildings/town_hall.svg');
+    this.load.image('bld_house',       'assets/buildings/house.svg');
+    this.load.image('bld_barracks',    'assets/buildings/barracks.svg');
+    this.load.image('bld_farm',        'assets/buildings/farm.svg');
+    this.load.image('bld_mine',        'assets/buildings/mine.svg');
+    this.load.image('bld_lumber_mill', 'assets/buildings/lumber_mill.svg');
+    this.load.image('bld_market',      'assets/buildings/market.svg');
+    this.load.image('bld_tower',       'assets/buildings/tower.svg');
+    this.load.image('bld_church',      'assets/buildings/church.svg');
+    this.load.image('bld_stable',      'assets/buildings/stable.svg');
+    this.load.image('bld_wall',        'assets/buildings/wall.svg');
+    this.load.image('village_tower',     'assets/buildings/village_tower.svg');
+    this.load.image('village_tower_cap', 'assets/buildings/village_tower_cap.svg');
   }
 
+
   create() {
-    this._createTileTextures();
-    this._createResourceTextures();
     this._createUnitTextures();
     this._createBuildingTextures();
     this._createUITextures();
     this._createNPCTextures();
     this.scene.start('Menu');
   }
-
-  // ─── Tiles ────────────────────────────────────────────────────────────────
-
-  _createTileTextures() {
-    const types = [
-      { key: 'tile_grass',      fn: this._drawGrass.bind(this) },
-      { key: 'tile_dark_grass', fn: this._drawDarkGrass.bind(this) },
-      { key: 'tile_water',      fn: this._drawWater.bind(this) },
-      { key: 'tile_sand',       fn: this._drawSand.bind(this) },
-      { key: 'tile_forest',     fn: this._drawForest.bind(this) },
-      { key: 'tile_mountain',   fn: this._drawMountain.bind(this) },
-      { key: 'tile_dirt',       fn: this._drawDirt.bind(this) },
-    ];
-    for (const { key, fn } of types) {
-      const g = this.make.graphics({ add: false });
-      fn(g); g.generateTexture(key, T, T); g.destroy();
-    }
-  }
-
-  _drawGrass(g) {
-    // Base coat
-    g.fillStyle(C.GRASS_MID); g.fillRect(0, 0, T, T);
-    // Darker patches for variation
-    g.fillStyle(C.GRASS_DARK);
-    g.fillRect(0, 0, 18, 16); g.fillRect(30, 28, 18, 20); g.fillRect(8, 36, 14, 12);
-    // Lighter highlights
-    g.fillStyle(C.GRASS);
-    g.fillRect(20, 4, 22, 14); g.fillRect(2, 22, 16, 10); g.fillRect(34, 10, 14, 18);
-    // Grass tufts — pairs of short strokes
-    g.fillStyle(C.GRASS_DARK);
-    const tufts = [[4,8],[14,18],[26,6],[38,14],[10,30],[32,38],[44,26],[20,40],[6,44]];
-    for (const [x,y] of tufts) {
-      g.fillRect(x, y, 2, 5); g.fillRect(x+3, y+1, 2, 4); g.fillRect(x+6, y, 2, 5);
-    }
-    g.fillStyle(0x70c050, 0.35);
-    g.fillRect(22, 22, 4, 6); g.fillRect(10, 10, 3, 5); g.fillRect(38, 36, 3, 5);
-  }
-  _drawDarkGrass(g) {
-    g.fillStyle(C.GRASS_DARK); g.fillRect(0, 0, T, T);
-    // Mossy patches
-    g.fillStyle(0x2e5e1e); g.fillRect(4, 4, 14, 10); g.fillRect(26, 20, 18, 12); g.fillRect(8, 32, 16, 14);
-    g.fillStyle(C.GRASS_MID); g.fillRect(10, 8, 8, 6); g.fillRect(30, 24, 10, 7); g.fillRect(14, 36, 8, 7);
-    // Tufts
-    g.fillStyle(C.FOREST_MID);
-    const t2 = [[6,14],[18,6],[36,8],[42,24],[4,38],[28,38],[20,26]];
-    for (const [x,y] of t2) { g.fillRect(x,y,2,6); g.fillRect(x+4,y+2,2,5); }
-  }
-  _drawWater(g) {
-    g.fillStyle(C.WATER); g.fillRect(0, 0, T, T);
-    // Depth variation
-    g.fillStyle(C.WATER_MID); g.fillRect(0, 0, T, 18); g.fillRect(0, 32, T, 16);
-    // Wave bands
-    g.fillStyle(C.WATER_LIGHT, 0.7);
-    g.fillRect(2, 10, 22, 3); g.fillRect(28, 22, 18, 3); g.fillRect(4, 36, 26, 3);
-    // Foam dots
-    g.fillStyle(C.WATER_FOAM, 0.5);
-    for (const [x,y] of [[6,12],[18,11],[34,23],[10,37],[40,37],[26,9]]) { g.fillCircle(x,y,2); }
-    // Dark depth patches
-    g.fillStyle(C.WATER, 0.6); g.fillRect(14, 18, 20, 12);
-  }
-  _drawSand(g) {
-    g.fillStyle(C.SAND); g.fillRect(0, 0, T, T);
-    // Shading patches
-    g.fillStyle(C.SAND_DARK); g.fillRect(0, 0, 16, 14); g.fillRect(32, 30, 16, 18); g.fillRect(10, 36, 14, 12);
-    g.fillStyle(C.SAND_LIGHT); g.fillRect(18, 6, 20, 12); g.fillRect(4, 22, 14, 10); g.fillRect(34, 14, 14, 16);
-    // Pebble dots
-    g.fillStyle(C.SAND_DARK);
-    for (const [x,y,r] of [[8,8,2],[24,16,1],[38,10,2],[14,28,1],[42,32,1],[6,40,2],[28,42,1],[20,34,2]]) g.fillCircle(x,y,r);
-    g.fillStyle(C.SAND_LIGHT);
-    for (const [x,y] of [[10,6],[26,14],[40,8],[16,26],[44,30],[8,38],[30,40]]) g.fillCircle(x,y,1);
-  }
-  _drawForest(g) {
-    // Ground
-    g.fillStyle(C.GRASS_DARK); g.fillRect(0, 0, T, T);
-    g.fillStyle(0x1c3c10); g.fillRect(4, 28, T-8, T-28);
-    // Trunk
-    g.fillStyle(C.FOREST_TRUNK); g.fillRect(T/2-3, T/2+6, 7, 14);
-    g.fillStyle(C.WOOD_DARK); g.fillRect(T/2-3, T/2+6, 3, 14);
-    // Canopy — back to front for depth (pine style from reference)
-    g.fillStyle(C.FOREST); g.fillCircle(T/2+8, T/2+6, 10);      // back right
-    g.fillStyle(C.FOREST); g.fillCircle(T/2-8, T/2+4, 11);      // back left
-    g.fillStyle(C.FOREST_MID); g.fillCircle(T/2+4, T/2, 13);    // mid right
-    g.fillStyle(C.FOREST_MID); g.fillCircle(T/2-5, T/2-2, 12);  // mid left
-    g.fillStyle(C.FOREST_LIGHT); g.fillCircle(T/2, T/2-6, 13);  // front top
-    g.fillStyle(0x5a9a38, 0.7); g.fillCircle(T/2-3, T/2-10, 8); // highlight
-    // Pine tip
-    g.fillStyle(C.FOREST_MID); g.fillTriangle(T/2, 4, T/2-7, 18, T/2+7, 18);
-    g.fillStyle(C.FOREST_LIGHT); g.fillTriangle(T/2, 6, T/2-4, 16, T/2+4, 16);
-  }
-  _drawMountain(g) {
-    g.fillStyle(C.GRASS_DARK); g.fillRect(0, 0, T, T);
-    // Rock rubble at base
-    g.fillStyle(C.MOUNTAIN_DARK);
-    g.fillRect(2, T-10, 12, 8); g.fillRect(34, T-10, 12, 8);
-    // Back peak (smaller, behind)
-    g.fillStyle(C.MOUNTAIN_DARK); g.fillTriangle(T/2+10, 8, T-2, T-8, T-2, T-8);
-    g.fillStyle(C.MOUNTAIN); g.fillTriangle(T/2+10, 8, T*0.58, T-8, T-2, T-8);
-    // Main peak
-    g.fillStyle(C.MOUNTAIN_DARK); g.fillTriangle(T/2, 2, 4, T-7, T-4, T-7);
-    g.fillStyle(C.MOUNTAIN); g.fillTriangle(T/2+2, 2, T/2+2, T-7, T-4, T-7); // lit face
-    // Rock face cracks
-    g.lineStyle(1, C.MOUNTAIN_DARK, 0.6);
-    g.beginPath(); g.moveTo(T/2-3, 24); g.lineTo(T/2-8, 36); g.lineTo(T/2-4, T-8); g.strokePath();
-    g.beginPath(); g.moveTo(T/2+4, 28); g.lineTo(T/2+8, 40); g.strokePath();
-    // Snow cap
-    g.fillStyle(C.MOUNTAIN_SNOW); g.fillTriangle(T/2, 2, T/2-10, 22, T/2+10, 22);
-    g.fillStyle(0xffffff, 0.6); g.fillTriangle(T/2, 2, T/2-4, 16, T/2+4, 16);
-    // Light on right face
-    g.fillStyle(C.MOUNTAIN_LIGHT, 0.4); g.fillTriangle(T/2, 22, T/2+10, 22, T-4, T-7);
-  }
-  _drawDirt(g) {
-    g.fillStyle(C.DIRT); g.fillRect(0, 0, T, T);
-    // Variation patches
-    g.fillStyle(C.DIRT_DARK); g.fillRect(0, 0, 14, 16); g.fillRect(28, 24, 20, 16); g.fillRect(6, 34, 16, 14);
-    g.fillStyle(C.DIRT_LIGHT); g.fillRect(16, 4, 18, 12); g.fillRect(2, 22, 14, 10); g.fillRect(34, 6, 14, 18);
-    // Cracked earth lines
-    g.lineStyle(1, C.DIRT_DARK, 0.7);
-    g.beginPath(); g.moveTo(10, 10); g.lineTo(20, 22); g.lineTo(16, 36); g.strokePath();
-    g.beginPath(); g.moveTo(30, 4); g.lineTo(38, 18); g.strokePath();
-    g.beginPath(); g.moveTo(6, 40); g.lineTo(22, 44); g.strokePath();
-    // Pebbles
-    g.fillStyle(C.DIRT_DARK);
-    for (const [x,y] of [[12,14],[34,28],[8,36],[40,12],[24,38],[44,40]]) g.fillCircle(x,y,2);
-  }
-
-  // ─── Resources ────────────────────────────────────────────────────────────
-
-  _createResourceTextures() {
-    // ── Full tree (wood resource, alive) ─────────────────────────────────────
-    {
-      const g = this.make.graphics({ add: false });
-      // Shadow
-      g.fillStyle(0x000000, 0.18); g.fillEllipse(T/2+3, T-5, T*0.72, T*0.18);
-      // Trunk
-      g.fillStyle(0x6b3a1f); g.fillRect(T/2-4, T/2+6, 8, 14);
-      g.fillStyle(0x8a5030); g.fillRect(T/2-2, T/2+6, 3, 14);
-      // Canopy — layered for depth
-      g.fillStyle(0x225a10); g.fillCircle(T/2+5, T/2+5, 11);
-      g.fillStyle(0x2a6a18); g.fillCircle(T/2-5, T/2+2, 13);
-      g.fillStyle(0x3a7a22); g.fillCircle(T/2+2, T/2-3, 14);
-      g.fillStyle(0x4a8a30); g.fillCircle(T/2-2, T/2-7, 10);
-      g.fillStyle(0x5a9838, 0.7); g.fillCircle(T/2-4, T/2-9, 7);
-      g.generateTexture('res_tree', T, T); g.destroy();
-    }
-
-    // ── Tree stump (wood depleted, regrowing) ─────────────────────────────────
-    {
-      const g = this.make.graphics({ add: false });
-      g.fillStyle(0x000000, 0.14); g.fillEllipse(T/2+2, T-9, T*0.58, T*0.14);
-      // Stump body
-      g.fillStyle(0x6b3a1f); g.fillRect(T/2-9, T/2+2, 18, 14);
-      g.fillStyle(0x8a5030); g.fillRect(T/2-7, T/2+2, 5, 14);
-      // Top face with rings
-      g.fillStyle(0x9a6040); g.fillEllipse(T/2, T/2+2, 18, 10);
-      g.lineStyle(1, 0x6b3a1f, 0.7); g.strokeEllipse(T/2, T/2+2, 13, 6);
-      g.lineStyle(1, 0x6b3a1f, 0.4); g.strokeEllipse(T/2, T/2+2, 7, 4);
-      // Small branch stubs
-      g.fillStyle(0x5a2a10); g.fillRect(T/2-12, T/2+5, 4, 4);
-      g.fillStyle(0x5a2a10); g.fillRect(T/2+8, T/2+6, 4, 4);
-      g.generateTexture('res_tree_stump', T, T); g.destroy();
-    }
-
-    // ── Sapling (30–90% regrown, can't gather yet) ───────────────────────────
-    {
-      const g = this.make.graphics({ add: false });
-      g.fillStyle(0x000000, 0.10); g.fillEllipse(T/2+1, T-10, T*0.4, T*0.12);
-      // Thin trunk
-      g.fillStyle(0x7a4a20); g.fillRect(T/2-2, T/2+2, 4, 14);
-      // Small canopy
-      g.fillStyle(0x2a6a18); g.fillCircle(T/2+3, T/2, 8);
-      g.fillStyle(0x3a7a22); g.fillCircle(T/2-2, T/2-3, 9);
-      g.fillStyle(0x5a9838, 0.8); g.fillCircle(T/2, T/2-7, 6);
-      g.generateTexture('res_tree_sapling', T, T); g.destroy();
-    }
-
-    // ── Stone pile ───────────────────────────────────────────────────────────
-    {
-      const g = this.make.graphics({ add: false });
-      g.fillStyle(0x000000, 0.18); g.fillEllipse(T/2+3, T-6, T*0.80, T*0.20);
-      // Rocks stacked
-      g.fillStyle(0x555250); g.fillCircle(T/2+9, T/2+8, 8);
-      g.fillStyle(0x6a6660); g.fillCircle(T/2-8, T/2+5, 10);
-      g.fillStyle(0x7a7874); g.fillCircle(T/2+4, T/2+1, 11);
-      g.fillStyle(0x8c8a88); g.fillCircle(T/2-2, T/2-5, 9);
-      // Highlights
-      g.fillStyle(0xa0a09c); g.fillCircle(T/2-4, T/2-7, 5);
-      g.fillStyle(0x606060); g.fillCircle(T/2+10, T/2+10, 5);
-      g.lineStyle(1, 0x3a3836, 0.5); g.strokeCircle(T/2+4, T/2+1, 11);
-      g.lineStyle(1, 0x3a3836, 0.4); g.strokeCircle(T/2-8, T/2+5, 10);
-      g.generateTexture('res_stone', T, T); g.destroy();
-    }
-
-    // ── Gold ore vein ─────────────────────────────────────────────────────────
-    {
-      const g = this.make.graphics({ add: false });
-      g.fillStyle(0x000000, 0.18); g.fillEllipse(T/2+3, T-6, T*0.80, T*0.20);
-      // Dark rock base
-      g.fillStyle(0x484440); g.fillCircle(T/2+6, T/2+6, 9);
-      g.fillStyle(0x555250); g.fillCircle(T/2-7, T/2+3, 11);
-      g.fillStyle(0x606060); g.fillCircle(T/2+2, T/2-4, 12);
-      // Gold veins in rock
-      g.fillStyle(0xffd700); g.fillRect(T/2-8, T/2-1, 6, 3);
-      g.fillStyle(0xffc000); g.fillRect(T/2+3, T/2+3, 7, 3);
-      g.fillStyle(0xffdd44); g.fillRect(T/2-2, T/2-7, 5, 3);
-      // Gold nuggets (bright spots)
-      g.fillStyle(0xffd700, 0.9); g.fillCircle(T/2+5, T/2-2, 4);
-      g.fillStyle(0xffee88, 0.8); g.fillCircle(T/2+7, T/2-4, 2);
-      g.fillStyle(0xffc000, 0.7); g.fillCircle(T/2-6, T/2+5, 3);
-      g.lineStyle(1, 0x2a2820, 0.5); g.strokeCircle(T/2+2, T/2-4, 12);
-      g.generateTexture('res_gold', T, T); g.destroy();
-    }
-
-    // ── Wheat field ───────────────────────────────────────────────────────────
-    {
-      const g = this.make.graphics({ add: false });
-      // Soil
-      g.fillStyle(0x8a6a30, 0.5); g.fillRect(2, Math.floor(T*0.55), T-4, Math.floor(T*0.42));
-      // Wheat stalks (7 stalks)
-      const stalks = [5, 11, 17, 23, 29, 35, 41];
-      for (const sx of stalks) {
-        const sh = 14 + (sx % 4);  // vary height slightly
-        // Stem
-        g.lineStyle(2, 0xa89040);
-        g.moveTo(sx+1, T-7); g.lineTo(sx+1, T-7-sh); g.strokePath();
-        // Grain head (ear of wheat)
-        g.fillStyle(0xd4a820); g.fillRect(sx-2, T-7-sh-8, 5, 9);
-        g.fillStyle(0xf0c040); g.fillRect(sx-1, T-7-sh-8, 3, 7);
-        // Awns (spikes)
-        g.lineStyle(1, 0xc89830);
-        g.moveTo(sx-2, T-7-sh-2); g.lineTo(sx-5, T-7-sh-6); g.strokePath();
-        g.moveTo(sx+3, T-7-sh-3); g.lineTo(sx+6, T-7-sh-7); g.strokePath();
-      }
-      g.generateTexture('res_food', T, T); g.destroy();
-    }
-  }
-
-  // ─── Units ─────────────────────────────────────────────────────────────────
 
   _createUnitTextures() {
     const SZ = 36;
@@ -776,34 +568,9 @@ export class BootScene extends Phaser.Scene {
   // ─── Buildings ────────────────────────────────────────────────────────────
 
   _createBuildingTextures() {
-    const defs = [
-      { key: 'town_hall',   fn: this._bldTownHall.bind(this),  sz: 96 },
-      { key: 'house',       fn: this._bldHouse.bind(this),     sz: 64 },
-      { key: 'barracks',    fn: this._bldBarracks.bind(this),  sz: 64 },
-      { key: 'farm',        fn: this._bldFarm.bind(this),      sz: 64 },
-      { key: 'mine',        fn: this._bldMine.bind(this),      sz: 64 },
-      { key: 'lumber_mill', fn: this._bldLumber.bind(this),    sz: 64 },
-      { key: 'market',      fn: this._bldMarket.bind(this),    sz: 64 },
-      { key: 'tower',       fn: this._bldTower.bind(this),     sz: 48 },
-      { key: 'church',      fn: this._bldChurch.bind(this),    sz: 64 },
-      { key: 'stable',      fn: this._bldStable.bind(this),    sz: 64 },
-    ];
-    for (const d of defs) {
-      const g = this.make.graphics({ add: false });
-      d.fn(g, d.sz); g.generateTexture(`bld_${d.key}`, d.sz, d.sz); g.destroy();
-    }
-
-    // Wall segment (already done inline below)
-    const wg = this.make.graphics({ add: false });
-    this._bldWall(wg, T); wg.generateTexture('bld_wall', T, T); wg.destroy();
-
-    // Village towers (enemy + captured variant)
-    for (const captured of [false, true]) {
-      const vg = this.make.graphics({ add: false });
-      this._bldVillageTower(vg, 72, captured);
-      vg.generateTexture(captured ? 'village_tower_cap' : 'village_tower', 72, 72);
-      vg.destroy();
-    }
+    // All buildings are now SVG images loaded in preload() — nothing to generate here.
+    // The old Graphics-based drawing methods (_bldTownHall, _bldHouse, …) are kept
+    // below as fallback reference but are no longer called at startup.
   }
 
   _bldVillageTower(g, sz, captured) {

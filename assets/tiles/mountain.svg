@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+  <defs>
+    <filter id="nm" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" seed="23" result="t"/>
+      <feColorMatrix type="saturate" values="0" in="t" result="g"/>
+      <feBlend in="SourceGraphic" in2="g" mode="multiply"/>
+    </filter>
+  </defs>
+  <!-- ground -->
+  <rect width="48" height="48" fill="#3a7028"/>
+  <!-- rock base rubble -->
+  <rect x="2" y="38" width="12" height="8" fill="#5a4e40"/>
+  <rect x="34" y="38" width="12" height="8" fill="#5a4e40"/>
+  <!-- back peak -->
+  <polygon points="34,8 44,40 46,40" fill="#5a4e40"/>
+  <polygon points="34,8 34,40 44,40"  fill="#8a7a68"/>
+  <!-- main peak shadow face -->
+  <polygon points="24,2 4,41 44,41" fill="#5a4e40"/>
+  <!-- main peak lit face -->
+  <polygon points="26,2 26,41 44,41" fill="#8a7a68"/>
+  <!-- light highlight -->
+  <polygon points="24,22 26,22 44,41 42,41" fill="#b0a090" opacity="0.4"/>
+  <!-- crack lines -->
+  <polyline points="21,24 16,36 20,44" stroke="#5a4e40" stroke-width="1.2" fill="none" opacity="0.6"/>
+  <polyline points="28,28 32,40"        stroke="#5a4e40" stroke-width="1"   fill="none" opacity="0.5"/>
+  <!-- snow cap -->
+  <polygon points="24,2 14,22 34,22" fill="#eeeedd"/>
+  <polygon points="24,2 20,16 28,16" fill="#ffffff" opacity="0.6"/>
+  <!-- noise -->
+  <rect width="48" height="48" filter="url(#nm)" opacity="0.28"/>
+</svg>

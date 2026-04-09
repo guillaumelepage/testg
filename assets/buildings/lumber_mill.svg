@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
+  <defs>
+    <linearGradient id="wd" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#7a5428"/><stop offset="0.6" stop-color="#9a7040"/><stop offset="1" stop-color="#5a3a14"/></linearGradient>
+    <linearGradient id="rf" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3a2010"/><stop offset="1" stop-color="#2a1408"/></linearGradient>
+  </defs>
+  <ellipse cx="34" cy="62" rx="28" ry="5" fill="#00000038"/>
+  <!-- log pile (right) -->
+  <rect x="50" y="44" width="14" height="6" rx="3" fill="#9a7040"/>
+  <ellipse cx="50" cy="47" rx="4" ry="6" fill="#7a5020"/>
+  <rect x="50" y="36" width="14" height="6" rx="3" fill="#a07848"/>
+  <ellipse cx="50" cy="39" rx="4" ry="6" fill="#7a5020"/>
+  <rect x="50" y="28" width="14" height="6" rx="3" fill="#a07848"/>
+  <ellipse cx="50" cy="31" rx="4" ry="6" fill="#7a5020"/>
+  <!-- roof -->
+  <polygon points="28,4 2,28 56,28" fill="url(#rf)"/>
+  <polygon points="28,4 50,28 56,28" fill="#00000022"/>
+  <!-- wall -->
+  <rect x="4" y="28" width="50" height="30" fill="url(#wd)"/>
+  <rect x="38" y="28" width="16" height="30" fill="#00000018"/>
+  <!-- plank lines -->
+  <line x1="4" y1="36" x2="54" y2="36" stroke="#5a3810" stroke-width="1" opacity="0.6"/>
+  <line x1="4" y1="45" x2="54" y2="45" stroke="#5a3810" stroke-width="1" opacity="0.6"/>
+  <line x1="4" y1="54" x2="54" y2="54" stroke="#5a3810" stroke-width="1" opacity="0.6"/>
+  <!-- saw wheel (left) -->
+  <circle cx="8" cy="46" r="10" fill="#4a3818"/>
+  <circle cx="8" cy="46" r="10" stroke="#6a5028" stroke-width="1.5" fill="none"/>
+  <line x1="8" y1="36" x2="8" y2="56" stroke="#8a6830" stroke-width="1.5"/>
+  <line x1="-2" y1="46" x2="18" y2="46" stroke="#8a6830" stroke-width="1.5"/>
+  <line x1="1" y1="39" x2="15" y2="53" stroke="#8a6830" stroke-width="1"/>
+  <line x1="15" y1="39" x2="1" y2="53" stroke="#8a6830" stroke-width="1"/>
+  <circle cx="8" cy="46" r="3" fill="#6a5028"/>
+  <!-- saw blade -->
+  <line x1="10" y1="38" x2="22" y2="38" stroke="#c0c0c0" stroke-width="2"/>
+  <!-- door -->
+  <rect x="24" y="42" width="10" height="16" fill="#2a1408"/>
+  <!-- window -->
+  <rect x="10" y="30" width="10" height="8" rx="1" fill="#ffe8a0"/>
+</svg>

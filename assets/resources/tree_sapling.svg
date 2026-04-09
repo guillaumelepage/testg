@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+  <!-- shadow -->
+  <ellipse cx="25" cy="42" rx="10" ry="3" fill="#00000020"/>
+  <!-- thin trunk -->
+  <rect x="22" y="26" width="4" height="14" fill="#7a4a20"/>
+  <!-- small canopy -->
+  <circle cx="27" cy="24" r="8"  fill="#2a6a18"/>
+  <circle cx="22" cy="21" r="9"  fill="#3a7a22"/>
+  <circle cx="24" cy="17" r="6"  fill="#5a9838" opacity="0.8"/>
+</svg>

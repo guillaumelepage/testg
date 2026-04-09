@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72">
+  <defs>
+    <linearGradient id="st" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#8a8a82"/><stop offset="0.6" stop-color="#aaaa9e"/><stop offset="1" stop-color="#6a6a62"/></linearGradient>
+  </defs>
+  <ellipse cx="38" cy="70" rx="30" ry="5" fill="#00000045"/>
+  <!-- tower body -->
+  <rect x="12" y="18" width="48" height="50" fill="url(#st)"/>
+  <rect x="46" y="18" width="14" height="50" fill="#00000020"/>
+  <!-- mortar lines -->
+  <line x1="12" y1="30" x2="60" y2="30" stroke="#3a3028" stroke-width="0.9" opacity="0.6"/>
+  <line x1="12" y1="42" x2="60" y2="42" stroke="#3a3028" stroke-width="0.9" opacity="0.6"/>
+  <line x1="12" y1="54" x2="60" y2="54" stroke="#3a3028" stroke-width="0.9" opacity="0.6"/>
+  <line x1="24" y1="18" x2="24" y2="68" stroke="#3a3028" stroke-width="0.7" opacity="0.5"/>
+  <line x1="42" y1="18" x2="42" y2="68" stroke="#3a3028" stroke-width="0.7" opacity="0.5"/>
+  <!-- crenellations (lighter = captured) -->
+  <rect x="12" y="10" width="8" height="10" fill="#6e6e66"/><rect x="24" y="10" width="8" height="10" fill="#6e6e66"/>
+  <rect x="36" y="10" width="8" height="10" fill="#6e6e66"/><rect x="48" y="10" width="8" height="10" fill="#6e6e66"/>
+  <!-- arrow slits -->
+  <rect x="28" y="24" width="6" height="16" rx="1" fill="#161212"/>
+  <rect x="28" y="46" width="6" height="14" rx="1" fill="#161212"/>
+  <rect x="16" y="34" width="5" height="12" rx="1" fill="#161212"/>
+  <!-- flagpole + gold flag (captured) -->
+  <line x1="50" y1="10" x2="50" y2="-8" stroke="#3a2010" stroke-width="2"/>
+  <polygon points="50,-8 66,-2 50,4" fill="#ffd700"/>
+  <!-- white cross on flag -->
+  <line x1="55" y1="-6" x2="55" y2="2" stroke="white" stroke-width="2"/>
+  <line x1="51" y1="-2" x2="59" y2="-2" stroke="white" stroke-width="2"/>
+</svg>

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+  <defs>
+    <filter id="nw" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="3" seed="17" result="t"/>
+      <feColorMatrix type="saturate" values="0" in="t" result="g"/>
+      <feBlend in="SourceGraphic" in2="g" mode="multiply" result="b"/>
+      <feComponentTransfer in="b"><feFuncR type="linear" slope="1.05" intercept="-0.02"/><feFuncG type="linear" slope="1.05" intercept="-0.02"/><feFuncB type="linear" slope="1.1" intercept="-0.03"/></feComponentTransfer>
+    </filter>
+  </defs>
+  <rect width="48" height="48" fill="#2060a8"/>
+  <rect width="48" height="18" fill="#3478c0" opacity="0.7"/>
+  <rect y="32" width="48" height="16" fill="#3478c0" opacity="0.6"/>
+  <!-- wave bands -->
+  <rect x="2" y="10" width="22" height="3" rx="1" fill="#5a9ad8" opacity="0.7"/>
+  <rect x="28" y="22" width="18" height="3" rx="1" fill="#5a9ad8" opacity="0.7"/>
+  <rect x="4" y="36" width="26" height="3" rx="1" fill="#5a9ad8" opacity="0.7"/>
+  <!-- foam dots -->
+  <circle cx="6"  cy="12" r="2" fill="#bcddee" opacity="0.5"/>
+  <circle cx="18" cy="11" r="2" fill="#bcddee" opacity="0.5"/>
+  <circle cx="34" cy="23" r="2" fill="#bcddee" opacity="0.5"/>
+  <circle cx="10" cy="37" r="2" fill="#bcddee" opacity="0.5"/>
+  <circle cx="40" cy="37" r="2" fill="#bcddee" opacity="0.5"/>
+  <circle cx="26" cy="9"  r="2" fill="#bcddee" opacity="0.5"/>
+  <!-- noise overlay -->
+  <rect width="48" height="48" filter="url(#nw)" opacity="0.35"/>
+</svg>

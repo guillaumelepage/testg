@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+  <!-- soil band -->
+  <rect x="2" y="27" width="44" height="19" rx="1" fill="#8a6a30" opacity="0.5"/>
+  <!-- 7 wheat stalks -->
+  <line x1="6"  y1="41" x2="6"  y2="27" stroke="#a89040" stroke-width="2"/>
+  <line x1="13" y1="41" x2="13" y2="26" stroke="#a89040" stroke-width="2"/>
+  <line x1="20" y1="41" x2="20" y2="27" stroke="#a89040" stroke-width="2"/>
+  <line x1="27" y1="41" x2="27" y2="26" stroke="#a89040" stroke-width="2"/>
+  <line x1="34" y1="41" x2="34" y2="27" stroke="#a89040" stroke-width="2"/>
+  <line x1="41" y1="41" x2="41" y2="26" stroke="#a89040" stroke-width="2"/>
+  <!-- grain heads -->
+  <rect x="4"  y="18" width="5" height="9" rx="1" fill="#d4a820"/>
+  <rect x="11" y="17" width="5" height="9" rx="1" fill="#d4a820"/>
+  <rect x="18" y="18" width="5" height="9" rx="1" fill="#d4a820"/>
+  <rect x="25" y="17" width="5" height="9" rx="1" fill="#d4a820"/>
+  <rect x="32" y="18" width="5" height="9" rx="1" fill="#d4a820"/>
+  <rect x="39" y="17" width="5" height="9" rx="1" fill="#d4a820"/>
+  <!-- highlight on heads -->
+  <rect x="5"  y="19" width="3" height="7" rx="1" fill="#f0c040" opacity="0.7"/>
+  <rect x="12" y="18" width="3" height="7" rx="1" fill="#f0c040" opacity="0.7"/>
+  <rect x="19" y="19" width="3" height="7" rx="1" fill="#f0c040" opacity="0.7"/>
+  <rect x="26" y="18" width="3" height="7" rx="1" fill="#f0c040" opacity="0.7"/>
+  <rect x="33" y="19" width="3" height="7" rx="1" fill="#f0c040" opacity="0.7"/>
+  <rect x="40" y="18" width="3" height="7" rx="1" fill="#f0c040" opacity="0.7"/>
+  <!-- awns -->
+  <line x1="4"  y1="21" x2="1"  y2="17" stroke="#c89830" stroke-width="1"/>
+  <line x1="9"  y1="22" x2="12" y2="18" stroke="#c89830" stroke-width="1"/>
+  <line x1="11" y1="20" x2="8"  y2="16" stroke="#c89830" stroke-width="1"/>
+  <line x1="16" y1="21" x2="19" y2="17" stroke="#c89830" stroke-width="1"/>
+  <line x1="25" y1="20" x2="22" y2="16" stroke="#c89830" stroke-width="1"/>
+  <line x1="30" y1="21" x2="33" y2="17" stroke="#c89830" stroke-width="1"/>
+</svg>

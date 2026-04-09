@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
+  <defs>
+    <linearGradient id="wall" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#b88a50"/><stop offset="0.7" stop-color="#d0a868"/><stop offset="1" stop-color="#906830"/></linearGradient>
+    <linearGradient id="rf" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#8a2a14"/><stop offset="1" stop-color="#6a1e0c"/></linearGradient>
+  </defs>
+  <ellipse cx="34" cy="62" rx="28" ry="5" fill="#00000040"/>
+  <!-- chimney -->
+  <rect x="43" y="12" width="7" height="16" fill="#9a8070"/>
+  <rect x="41" y="11" width="11" height="3" fill="#7a6050"/>
+  <!-- roof -->
+  <polygon points="32,4 4,28 60,28" fill="url(#rf)"/>
+  <polygon points="32,4 56,28 60,28" fill="#00000025"/>
+  <!-- wall -->
+  <rect x="8" y="28" width="48" height="30" fill="url(#wall)"/>
+  <rect x="44" y="28" width="12" height="30" fill="#00000018"/>
+  <!-- mortar -->
+  <line x1="8" y1="40" x2="56" y2="40" stroke="#8a6030" stroke-width="0.7" opacity="0.5"/>
+  <line x1="8" y1="52" x2="56" y2="52" stroke="#8a6030" stroke-width="0.7" opacity="0.5"/>
+  <!-- door -->
+  <rect x="27" y="42" width="10" height="16" fill="#2a1408"/>
+  <path d="M27,42 Q32,36 37,42" fill="#2a1408"/>
+  <circle cx="35" cy="50" r="1.5" fill="#c8960c"/>
+  <!-- windows -->
+  <rect x="10" y="32" width="12" height="10" rx="1" fill="#ffe8a0"/>
+  <rect x="42" y="32" width="12" height="10" rx="1" fill="#ffe8a0"/>
+  <line x1="16" y1="32" x2="16" y2="42" stroke="#7a5020" stroke-width="1"/>
+  <line x1="10" y1="37" x2="22" y2="37" stroke="#7a5020" stroke-width="1"/>
+  <line x1="48" y1="32" x2="48" y2="42" stroke="#7a5020" stroke-width="1"/>
+  <line x1="42" y1="37" x2="54" y2="37" stroke="#7a5020" stroke-width="1"/>
+</svg>
