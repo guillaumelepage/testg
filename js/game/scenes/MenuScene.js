@@ -151,6 +151,24 @@ export class MenuScene extends Phaser.Scene {
       });
 
     this.time.addEvent({ delay: 5000, loop: true, callback: this._refreshRooms, callbackScope: this });
+
+    // Restore form values if this is a resize-triggered restart
+    if (this._resize_name !== undefined) {
+      if (this.nameInput) { this.nameInput.state.value = this._resize_name; this._renderInput(this.nameInput); }
+      if (this.codeInput && this._resize_code) { this.codeInput.state.value = this._resize_code; this._renderInput(this.codeInput); }
+      this._resize_name = undefined;
+      this._resize_code = undefined;
+    }
+
+    // ── Resize handling ──────────────────────────────────────────────────────
+    this.scale.on('resize', this._onResize, this);
+    this.events.once('shutdown', () => this.scale.off('resize', this._onResize, this));
+  }
+
+  _onResize() {
+    this._resize_name = this.nameInput?.state.value ?? '';
+    this._resize_code = this.codeInput?.state.value ?? '';
+    this.scene.restart();
   }
 
   // ─── Background ──────────────────────────────────────────────────────────────

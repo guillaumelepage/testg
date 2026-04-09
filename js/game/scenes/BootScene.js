@@ -655,6 +655,70 @@ export class BootScene extends Phaser.Scene {
     // Wall segment (already done inline below)
     const wg = this.make.graphics({ add: false });
     this._bldWall(wg, T); wg.generateTexture('bld_wall', T, T); wg.destroy();
+
+    // Village towers (enemy + captured variant)
+    for (const captured of [false, true]) {
+      const vg = this.make.graphics({ add: false });
+      this._bldVillageTower(vg, 72, captured);
+      vg.generateTexture(captured ? 'village_tower_cap' : 'village_tower', 72, 72);
+      vg.destroy();
+    }
+  }
+
+  _bldVillageTower(g, sz, captured) {
+    const cx = sz / 2;
+    const w = sz * 0.66, h = sz * 0.72;
+    const x0 = (sz - w) / 2, y0 = sz * 0.1;
+
+    // Shadow
+    g.fillStyle(0x00000040); g.fillRect(x0 + 3, y0 + h + 3, w, 6);
+
+    // Stone walls — dark brownish for enemy, cleaner for captured
+    const stoneCol = captured ? 0x8a8a8a : 0x5a4a44;
+    g.fillStyle(stoneCol); g.fillRect(x0, y0, w, h);
+
+    // Brick lines
+    g.lineStyle(1, 0x00000050);
+    for (let row = 0; row < 10; row++) {
+      const yy = y0 + row * h / 10;
+      const off = row % 2 === 0 ? 0 : sz * 0.09;
+      g.beginPath(); g.moveTo(x0, yy); g.lineTo(x0 + w, yy); g.strokePath();
+      for (let bx = x0 - off; bx < x0 + w; bx += sz * 0.18) {
+        g.beginPath(); g.moveTo(bx, yy); g.lineTo(bx, yy + h / 10); g.strokePath();
+      }
+    }
+    g.lineStyle(2, 0x00000055); g.strokeRect(x0, y0, w, h);
+
+    // Wide crenellations (5 merlons)
+    const crenCol = captured ? 0x707070 : 0x443838;
+    g.fillStyle(crenCol);
+    const crenW = sz * 0.08, crenH = sz * 0.1, gap = (w - 5 * crenW) / 4;
+    for (let i = 0; i < 5; i++) {
+      g.fillRect(x0 + i * (crenW + gap), y0 - crenH + 2, crenW, crenH);
+    }
+
+    // Two arrow slit pairs
+    g.fillStyle(0x181818);
+    g.fillRect(cx - sz * 0.14, y0 + h * 0.18, sz * 0.07, sz * 0.18);
+    g.fillRect(cx + sz * 0.07, y0 + h * 0.18, sz * 0.07, sz * 0.18);
+    g.fillRect(cx - sz * 0.04, y0 + h * 0.50, sz * 0.08, sz * 0.16);
+
+    // Flagpole
+    const poleX = cx + sz * 0.12;
+    g.lineStyle(2, 0x332211, 1);
+    g.beginPath(); g.moveTo(poleX, y0 - crenH); g.lineTo(poleX, y0 - sz * 0.38); g.strokePath();
+
+    // Flag
+    const flagCol = captured ? 0xffd700 : 0xaa2020;
+    g.fillStyle(flagCol);
+    g.fillTriangle(poleX, y0 - sz * 0.38, poleX + sz * 0.22, y0 - sz * 0.29, poleX, y0 - sz * 0.20);
+
+    // Captured: white cross on flag
+    if (captured) {
+      g.fillStyle(0xffffff, 0.85);
+      g.fillRect(poleX + sz * 0.04, y0 - sz * 0.36, sz * 0.035, sz * 0.12);
+      g.fillRect(poleX + sz * 0.02, y0 - sz * 0.29, sz * 0.10, sz * 0.03);
+    }
   }
 
   _bldBase(g, sz, wallCol, roofCol) {

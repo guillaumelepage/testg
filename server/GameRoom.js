@@ -151,6 +151,9 @@ class GameRoom {
     const mobRand = rng(seed ^ 0x5a5a5a5a);
     this._spawnNeutralMobs(mobRand);
 
+    // ── Enemy villages (with archer towers) ──────────────────────────────────
+    this.shared.villages = this._generateVillages();
+
     // ── NPCs ──────────────────────────────────────────────────────────────────
     this.shared.npcs = SERVER_NPC_DEFS.map(d => ({
       ...d, quest: { ...d.quest },
@@ -158,6 +161,7 @@ class GameRoom {
     }));
 
     this.activeBattle = null;
+    this._pendingEvents = [];
   }
 
   _nextId() { return `obj_${this.shared.nextId++}`; }
@@ -303,6 +307,13 @@ class GameRoom {
     if (!unit || unit.owner === 'enemy' || unit.owner === 'neutral') return null;
     if (ty < 0 || ty >= MAP_HEIGHT || tx < 0 || tx >= MAP_WIDTH) return null;
     if (this.map[ty][tx] === T.WATER || this.map[ty][tx] === T.MOUNTAIN) return null;
+
+    // Village tower at destination → start siege (unit walks adjacent, attacks each tick)
+    const village = (this.shared.villages || []).find(v => !v.capturedBy && v.x === tx && v.y === ty);
+    if (village) {
+      this._startVillageSiege(unit, village);
+      return { type: 'STATE_UPDATE', shared: this.shared };
+    }
 
     // Neutral mob at destination → auto-fight (instant)
     const neutral = this.shared.units.find(u => u.x === tx && u.y === ty && u.owner === 'neutral');
@@ -563,6 +574,17 @@ class GameRoom {
     }
     if (this.map[ty]?.[tx] === T.WATER || this.map[ty]?.[tx] === T.MOUNTAIN) return null;
 
+    // Territory check: must build near a player town_hall or captured village
+    if (type !== 'wall') {
+      const TOWN_R = 22, VILLAGE_R = 16;
+      const halls = this.shared.buildings.filter(b => b.type === 'town_hall' && b.owner !== 'enemy');
+      const captured = (this.shared.villages || []).filter(v => v.capturedBy);
+      const inTerritory =
+        halls.some(h => Math.abs(h.x - tx) + Math.abs(h.y - ty) <= TOWN_R)
+        || captured.some(v => Math.abs(v.x - tx) + Math.abs(v.y - ty) <= VILLAGE_R);
+      if (!inTerritory) return null;
+    }
+
     if (type === 'wall') {
       const wallCount = this.shared.buildings.filter(b => b.type === 'wall').length;
       if (wallCount >= 20) return null;
@@ -597,6 +619,135 @@ class GameRoom {
     // Quest progress: train_units
     this._updateQuestProgressAll('train_units', unitType);
     return { type: 'STATE_UPDATE', shared: this.shared };
+  }
+
+  // ─── Neutral mobs ─────────────────────────────────────────────────────────
+
+  // ─── Enemy villages ───────────────────────────────────────────────────────
+
+  _generateVillages() {
+    const rand = rng(this.mapSeed ^ 0x7abc1234);
+    const villages = [];
+    const prefs = [
+      { x: 38, y: 12 }, { x: 16, y: 32 }, { x: 62, y: 28 },
+      { x: 40, y: 48 }, { x: 22, y: 50 }, { x: 60, y: 48 },
+    ];
+    for (const pref of prefs) {
+      if (villages.length >= 4) break;
+      const sp = this._findValidSpawn(pref.x, pref.y);
+      // Stay clear of player starts, enemy camp, other villages
+      if (Math.abs(sp.x - 8) + Math.abs(sp.y - 6) < 16) continue;
+      if (Math.abs(sp.x - (MAP_WIDTH - 9)) + Math.abs(sp.y - (MAP_HEIGHT - 7)) < 16) continue;
+      if (Math.abs(sp.x - this.enemy.campX) + Math.abs(sp.y - this.enemy.campY) < 14) continue;
+      if (villages.some(v => Math.abs(v.x - sp.x) + Math.abs(v.y - sp.y) < 16)) continue;
+
+      const vid = `village_${villages.length}`;
+      villages.push({
+        id: vid, x: sp.x, y: sp.y,
+        hp: 300, maxHp: 300, capturedBy: null,
+        loot: {
+          wood:  100 + Math.floor(rand() * 150),
+          stone:  40 + Math.floor(rand() * 100),
+          gold:   25 + Math.floor(rand() * 80),
+          food:   80 + Math.floor(rand() * 120),
+        },
+        shotTimer: Math.floor(rand() * 5),
+        shotCooldown: 5, arrowRange: 6, arrowDamage: 18,
+      });
+
+      // 2 guards patrol near village
+      for (const off of [{ dx: 2, dy: 0 }, { dx: -1, dy: 2 }]) {
+        const gx = Math.max(1, Math.min(MAP_WIDTH - 2, sp.x + off.dx));
+        const gy = Math.max(1, Math.min(MAP_HEIGHT - 2, sp.y + off.dy));
+        if (this.map[gy]?.[gx] === T.WATER || this.map[gy]?.[gx] === T.MOUNTAIN) continue;
+        this.shared.units.push({
+          id: this._nextId(), type: 'homme_armes', x: gx, y: gy,
+          owner: 'neutral', hp: 60, maxHp: 60, moves: [], reward: 20,
+          gatherState: 'idle', targetResource: null,
+          inventory: 0, inventoryMax: 0, inventoryType: null,
+          villageGuard: vid, homeX: sp.x, homeY: sp.y,
+        });
+      }
+    }
+    return villages;
+  }
+
+  // Called when a player unit moves onto a village tower tile
+  _startVillageSiege(unit, village) {
+    // Find an adjacent walkable tile
+    const dirs = [{ dx: 0, dy: -1 }, { dx: 1, dy: 0 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }];
+    let adjX = village.x, adjY = village.y;
+    for (const d of dirs) {
+      const nx = village.x + d.dx, ny = village.y + d.dy;
+      if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT
+          && this.map[ny][nx] !== T.WATER && this.map[ny][nx] !== T.MOUNTAIN) {
+        adjX = nx; adjY = ny; break;
+      }
+    }
+    unit.targetX = adjX; unit.targetY = adjY;
+    unit.siegeTarget = village.id;
+    unit.gatherState = 'idle'; unit.targetResource = null;
+  }
+
+  _captureVillage(village) {
+    village.capturedBy = 'player';
+    village.hp = 0;
+    for (const [res, amt] of Object.entries(village.loot || {})) {
+      this.shared.resources[res] = (this.shared.resources[res] || 0) + amt;
+    }
+    // Remove guards
+    this.shared.units = this.shared.units.filter(u => u.villageGuard !== village.id);
+    // Clear siege state
+    for (const u of this.shared.units) {
+      if (u.siegeTarget === village.id) u.siegeTarget = null;
+    }
+    this._pendingEvents.push({ type: 'village_captured', villageId: village.id, loot: village.loot });
+  }
+
+  // Each tick: units adjacent to their siege target attack the tower
+  tickVillageSiege() {
+    let changed = false;
+    if (!this.shared.villages?.length) return false;
+    for (const unit of this.shared.units) {
+      if (!unit.siegeTarget) continue;
+      const village = this.shared.villages.find(v => v.id === unit.siegeTarget);
+      if (!village || village.capturedBy) { unit.siegeTarget = null; continue; }
+      if (Math.abs(unit.x - village.x) + Math.abs(unit.y - village.y) > 1) continue;
+      const stats = UNIT_BASE_STATS[unit.type] || HERO_BASE_STATS[unit.type] || UNIT_BASE_STATS['homme_armes'];
+      const atk = Math.floor((stats.atk || 15) * (0.7 + Math.random() * 0.6));
+      village.hp = Math.max(0, village.hp - atk);
+      changed = true;
+      if (village.hp <= 0) { this._captureVillage(village); unit.siegeTarget = null; }
+    }
+    return changed;
+  }
+
+  // Each tick: uncaptured village towers shoot at nearest player unit in range
+  tickVillageTowers() {
+    let changed = false;
+    if (!this.shared.villages?.length) return false;
+    const playerUnits = this.shared.units.filter(u => u.owner !== 'enemy' && u.owner !== 'neutral');
+    for (const village of this.shared.villages) {
+      if (village.capturedBy) continue;
+      village.shotTimer = (village.shotTimer || 0) + 1;
+      if (village.shotTimer < village.shotCooldown) continue;
+      village.shotTimer = 0;
+      let nearest = null, nearestDist = Infinity;
+      for (const u of playerUnits) {
+        const d = Math.abs(u.x - village.x) + Math.abs(u.y - village.y);
+        if (d <= village.arrowRange && d < nearestDist) { nearest = u; nearestDist = d; }
+      }
+      if (nearest) {
+        nearest.hp = Math.max(1, nearest.hp - village.arrowDamage);
+        this._pendingEvents.push({
+          type: 'arrow_shot',
+          fromX: village.x, fromY: village.y,
+          toX: nearest.x, toY: nearest.y,
+        });
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   // ─── Neutral mobs ─────────────────────────────────────────────────────────

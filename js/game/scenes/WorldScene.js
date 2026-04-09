@@ -43,6 +43,7 @@ export class WorldScene extends Phaser.Scene {
     this.buildingObjects = new Map();
     this.resourceObjects = new Map();
     this.npcObjects = new Map();
+    this.villageObjects = new Map();
     this.visitedTiles = new Set(); // fog of war memory
     this.mySocketId = null; // set on game_start
   }
@@ -142,10 +143,11 @@ export class WorldScene extends Phaser.Scene {
       .setStrokeStyle(2, 0x00ff00, 0.8).setOrigin(0).setVisible(false).setDepth(1.9);
 
     // ── Game objects ──────────────────────────────────────────────────────────
-    for (const node of this.shared.resourceNodes) this._spawnResource(node);
-    for (const bld  of this.shared.buildings)     this._spawnBuilding(bld);
-    for (const unit of this.shared.units)         this._spawnUnit(unit);
-    for (const npc  of (this.shared.npcs || []))  this._spawnNpc(npc);
+    for (const node    of this.shared.resourceNodes)  this._spawnResource(node);
+    for (const bld     of this.shared.buildings)      this._spawnBuilding(bld);
+    for (const unit    of this.shared.units)          this._spawnUnit(unit);
+    for (const npc     of (this.shared.npcs || []))   this._spawnNpc(npc);
+    for (const village of (this.shared.villages || [])) this._spawnVillage(village);
 
     // ── Input ─────────────────────────────────────────────────────────────────
     this.input.on('pointerdown', this._onPointerDown, this);
@@ -191,9 +193,11 @@ export class WorldScene extends Phaser.Scene {
       .on('battle_start',   (data) => this._enterBattle(data.battle))
       .on('battle_update',  (data) => this._applyStateUpdate(data.shared))
       .on('battle_end',     (data) => this._applyStateUpdate(data.shared))
-      .on('player_left',    ()     => this.scene.get('UI')?.showMessage('Votre allié a quitté la partie !', 0xff4444))
-      .on('player_joined',  (data) => this.scene.get('UI')?.showMessage(`${data.name} a rejoint la partie !`, 0x44cc88))
-      .on('npc_interact',   (data) => this._showNpcDialogue(data.npc, data.heroId));
+      .on('player_left',       ()     => this.scene.get('UI')?.showMessage('Votre allié a quitté la partie !', 0xff4444))
+      .on('player_joined',     (data) => this.scene.get('UI')?.showMessage(`${data.name} a rejoint la partie !`, 0x44cc88))
+      .on('npc_interact',      (data) => this._showNpcDialogue(data.npc, data.heroId))
+      .on('village_captured',  (data) => this._onVillageCaptured(data))
+      .on('arrow_shot',        (data) => this._showArrowShot(data));
 
     this.mySocketId = socketManager.socket?.id;
 
@@ -340,16 +344,18 @@ export class WorldScene extends Phaser.Scene {
     this.buildCursor.setVisible(false);
 
     // Determine what's under the cursor
-    const unit     = this.shared.units.find(u => u.x === tx && u.y === ty);
-    const resource = this.shared.resourceNodes.find(r => r.x === tx && r.y === ty && r.amount > 0);
-    const building = this._buildingAt(tx, ty);
-    const tileIdx  = this.mapData[ty]?.[tx];
-    const walkable = tileIdx !== undefined && !IMPASSABLE.has(tileIdx);
+    const unit        = this.shared.units.find(u => u.x === tx && u.y === ty);
+    const resource    = this.shared.resourceNodes.find(r => r.x === tx && r.y === ty && r.amount > 0);
+    const building    = this._buildingAt(tx, ty);
+    const villageTower = (this.shared.villages || []).find(v => !v.capturedBy && v.x === tx && v.y === ty);
+    const tileIdx     = this.mapData[ty]?.[tx];
+    const walkable    = tileIdx !== undefined && !IMPASSABLE.has(tileIdx);
 
     // Hover highlight — red for attackable targets, white otherwise
     this.hoverGfx.clear();
     if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H) {
-      const isAttackable = unit && (unit.owner === 'enemy' || unit.owner === 'neutral') && this.selectedUnit;
+      const isAttackable = (unit && (unit.owner === 'enemy' || unit.owner === 'neutral') && this.selectedUnit)
+                        || (villageTower && this.selectedUnit);
       if (isAttackable) {
         this.hoverGfx.lineStyle(2, 0xff3322, 0.75);
         this.hoverGfx.strokeRect(tx * TILE_SIZE + 1, ty * TILE_SIZE + 1, TILE_SIZE - 2, TILE_SIZE - 2);
@@ -362,7 +368,9 @@ export class WorldScene extends Phaser.Scene {
     }
 
     // Cursor icon
-    if (unit) {
+    if (villageTower && this.selectedUnit) {
+      this._setCursor('crosshair');
+    } else if (unit) {
       if ((unit.owner === 'enemy' || unit.owner === 'neutral') && this.selectedUnit) this._setCursor('crosshair');
       else if (unit.owner === 'player') this._setCursor('pointer');
       else                              this._setCursor('default');
@@ -396,6 +404,15 @@ export class WorldScene extends Phaser.Scene {
       } else {
         this._cancelBuildMode();
       }
+      return;
+    }
+
+    // Village tower at tile? → siege (unit walks adjacent and attacks each tick)
+    const tower = (this.shared.villages || []).find(v => !v.capturedBy && v.x === tx && v.y === ty);
+    if (tower && this.selectedUnit) {
+      socketManager.sendAction({ type: 'MOVE_UNIT', unitId: this.selectedUnit.id, tx, ty });
+      this.scene.get('UI')?.showMessage('⚔ Siège de la tour ennemie !', 0xff8800);
+      this._deselectAll();
       return;
     }
 
@@ -658,6 +675,95 @@ export class WorldScene extends Phaser.Scene {
     this.npcObjects.set(npc.id, { img, badge, label, npc });
   }
 
+  // ─── Village towers ──────────────────────────────────────────────────────
+
+  _spawnVillage(village) {
+    const wx = village.x * TILE_SIZE + TILE_SIZE / 2;
+    const wy = village.y * TILE_SIZE + TILE_SIZE / 2;
+
+    // Region ring (territory that becomes buildable on capture)
+    const ring = this.add.graphics().setDepth(0.5);
+    this._drawVillageRing(ring, wx, wy, !!village.capturedBy);
+
+    // Tower sprite
+    const tower = this.add.image(wx, wy, village.capturedBy ? 'village_tower_cap' : 'village_tower')
+      .setOrigin(0.5).setDepth(village.y + 0.8).setDisplaySize(72, 72);
+
+    // HP bar (hidden when captured)
+    const barW = 56;
+    const hpBg = this.add.rectangle(wx, wy - 44, barW, 7, 0x330000)
+      .setDepth(village.y + 1).setVisible(!village.capturedBy);
+    const hpFill = this.add.rectangle(wx - barW / 2, wy - 44, barW * (village.hp / village.maxHp), 7, 0xcc2222)
+      .setOrigin(0, 0.5).setDepth(village.y + 1).setVisible(!village.capturedBy);
+
+    // Label
+    const lbl = this.add.text(wx, wy - 56,
+      village.capturedBy ? '✦ Village allié' : '⚔ Village ennemi', {
+        fontFamily: 'sans-serif', fontSize: '10px',
+        color: village.capturedBy ? '#ffd700' : '#ff6644',
+        backgroundColor: '#00000088', padding: { x: 3, y: 2 },
+      }).setOrigin(0.5).setDepth(village.y + 1);
+
+    this.villageObjects.set(village.id, { ring, tower, hpBg, hpFill, lbl });
+  }
+
+  _drawVillageRing(g, wx, wy, captured) {
+    const r = 8 * TILE_SIZE;
+    g.clear();
+    g.fillStyle(captured ? 0x2244bb : 0x882222, captured ? 0.06 : 0.04);
+    g.fillCircle(wx, wy, r);
+    g.lineStyle(2, captured ? 0x4488ff : 0xcc4444, captured ? 0.35 : 0.25);
+    g.strokeCircle(wx, wy, r);
+  }
+
+  _syncVillages() {
+    for (const village of (this.shared.villages || [])) {
+      const objs = this.villageObjects.get(village.id);
+      if (!objs) { this._spawnVillage(village); continue; }
+
+      if (village.capturedBy) {
+        // Update to captured state (only once)
+        if (objs.tower.texture?.key !== 'village_tower_cap') {
+          objs.tower.setTexture('village_tower_cap');
+          const wx = village.x * TILE_SIZE + TILE_SIZE / 2;
+          const wy = village.y * TILE_SIZE + TILE_SIZE / 2;
+          this._drawVillageRing(objs.ring, wx, wy, true);
+          objs.hpBg.setVisible(false);
+          objs.hpFill.setVisible(false);
+          objs.lbl.setText('✦ Village allié').setColor('#ffd700');
+        }
+      } else {
+        // Update HP bar
+        const barW = 56;
+        const pct = village.hp / village.maxHp;
+        objs.hpFill.setDisplaySize(Math.max(1, barW * pct), 7);
+        const col = pct > 0.5 ? 0x22cc22 : pct > 0.25 ? 0xddaa00 : 0xcc2222;
+        objs.hpFill.setFillStyle(col);
+      }
+    }
+  }
+
+  _onVillageCaptured(data) {
+    const loot = data.loot || {};
+    const parts = Object.entries(loot).map(([k, v]) => `${v} ${k[0].toUpperCase()}`).join('  ');
+    this.scene.get('UI')?.showMessage(`🏰 Village capturé ! +${parts}`, 0xffd700);
+  }
+
+  // Brief animated arrow-shot line between tower and target
+  _showArrowShot(data) {
+    const fx = this.add.graphics().setDepth(50);
+    const x1 = data.fromX * TILE_SIZE + TILE_SIZE / 2;
+    const y1 = data.fromY * TILE_SIZE + TILE_SIZE / 2;
+    const x2 = data.toX   * TILE_SIZE + TILE_SIZE / 2;
+    const y2 = data.toY   * TILE_SIZE + TILE_SIZE / 2;
+    fx.lineStyle(2, 0xffcc44, 0.85);
+    fx.beginPath(); fx.moveTo(x1, y1); fx.lineTo(x2, y2); fx.strokePath();
+    this.tweens.add({
+      targets: fx, alpha: 0, duration: 320, ease: 'Expo.easeOut',
+      onComplete: () => fx.destroy(),
+    });
+  }
+
   _showNpcDialogue(npc, heroId) {
     if (this._npcDialogue) {
       this._npcDialogue.forEach(o => o.destroy());
@@ -869,6 +975,9 @@ export class WorldScene extends Phaser.Scene {
         obj.questBadge.setText(unit.activeQuest ? '❗' : '✦');
       }
     }
+
+    // Update villages
+    this._syncVillages();
 
     // Update fog of war
     this._updateFog();

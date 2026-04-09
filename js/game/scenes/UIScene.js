@@ -9,11 +9,14 @@ export class UIScene extends Phaser.Scene {
   constructor() { super({ key: 'UI', active: false }); }
 
   init(data) {
-    this.shared = data.shared;
-    this.onBuild = data.onBuild;
+    // Persist across restarts (resize)
+    if (data && Object.keys(data).length) this._savedData = data;
+    const d = this._savedData || data;
+    this.shared = d.shared;
+    this.onBuild = d.onBuild;
     this.panel = null;
     this.messageTimeout = null;
-    this.currentResources = data.shared?.resources || {};
+    this.currentResources = d.shared?.resources || {};
   }
 
   create() {
@@ -61,9 +64,12 @@ export class UIScene extends Phaser.Scene {
       }
     });
 
-    // ── Build menu toggle (bottom-right button) ───────────────────────────────
-    const btnX = W - 90, btnY = H - 36;
-    const buildBtn = this.add.rectangle(btnX, btnY, 160, 40, 0x3a2a0a, 0.9)
+    // ── Bottom bar (build + cancel) ───────────────────────────────────────────
+    // Keep buttons at a safe distance from the resource bar and within screen bounds
+    const bottomBtnH = 40;
+    const bottomBtnY = Math.max(barH + bottomBtnH / 2 + 4, H - bottomBtnH / 2 - 8);
+    const btnX = W - 90, btnY = bottomBtnY;
+    const buildBtn = this.add.rectangle(btnX, btnY, 160, bottomBtnH, 0x3a2a0a, 0.9)
       .setInteractive({ useHandCursor: true })
       .setStrokeStyle(1, 0xc8960c, 0.7);
     this.add.text(btnX, btnY, '🏗 Construire', {
@@ -75,9 +81,9 @@ export class UIScene extends Phaser.Scene {
     this.buildMenuVisible = false;
 
     // ── Cancel build mode button (touch-friendly, visible only in build mode) ──
-    const cancelBtn = this.add.rectangle(W / 2, H - 36, 160, 40, 0x3a0a0a, 0.92)
+    const cancelBtn = this.add.rectangle(W / 2, bottomBtnY, 160, bottomBtnH, 0x3a0a0a, 0.92)
       .setStrokeStyle(2, 0xff4444, 0.8).setInteractive({ useHandCursor: true }).setVisible(false);
-    const cancelTxt = this.add.text(W / 2, H - 36, '✕  Annuler', {
+    const cancelTxt = this.add.text(W / 2, bottomBtnY, '✕  Annuler', {
       fontFamily: 'Georgia, serif', fontSize: '14px', color: '#ff8888',
     }).setOrigin(0.5).setVisible(false);
     cancelBtn.on('pointerdown', () => {
@@ -89,7 +95,8 @@ export class UIScene extends Phaser.Scene {
     this._cancelBtnTxt = cancelTxt;
 
     // ── Message area ──────────────────────────────────────────────────────────
-    this.messageTxt = this.add.text(W / 2, H - 72, '', {
+    const msgY = Math.max(barH + 26, bottomBtnY - 36);
+    this.messageTxt = this.add.text(W / 2, msgY, '', {
       fontFamily: 'Georgia, serif', fontSize: '14px',
       color: '#ffd700', backgroundColor: '#1a0f05cc', padding: { x: 10, y: 5 },
     }).setOrigin(0.5).setVisible(false);
@@ -109,6 +116,15 @@ export class UIScene extends Phaser.Scene {
 
     // ── Initial sync ─────────────────────────────────────────────────────────
     this.syncResources(this.shared?.resources || {});
+
+    // ── Resize handling ───────────────────────────────────────────────────────
+    this.scale.on('resize', this._onResize, this);
+    this.events.once('shutdown', () => this.scale.off('resize', this._onResize, this));
+  }
+
+  _onResize() {
+    // Rebuild the whole scene with the saved init data so all positions use fresh W/H
+    this.scene.restart(this._savedData || {});
   }
 
   // ─── Resources ─────────────────────────────────────────────────────────────
@@ -367,8 +383,10 @@ export class UIScene extends Phaser.Scene {
     const btnW = 100, btnH = 90;
     const menuW = cols * (btnW + 8) + 8;
     const menuH = Math.ceil(BUILDABLE.length / cols) * (btnH + 8) + 16;
+    const resBarH  = Math.max(36, Math.min(48, Math.floor(H * 0.065)));
+    const btnSafeY = Math.max(resBarH + 20 + 4, H - 20 - 8); // centre du bouton
     const mx = W - menuW - 14;
-    const my = H - menuH - 50;
+    const my = Math.max(resBarH + 4, btnSafeY - 20 - menuH - 4);
 
     const res = this.currentResources || {};
     const canAfford = (cost) => !cost || Object.entries(cost).every(([k, v]) => (res[k] || 0) >= v);

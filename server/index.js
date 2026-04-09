@@ -40,14 +40,20 @@ function generateCode() {
 setInterval(() => {
   for (const [code, room] of rooms) {
     if (room.state !== 'playing') continue;
-    const moveChanged = room.tickUnitMovement();
-    const gatherChanged = room.tickGathering();
-    const buildChanged = room.tickConstruction();
-    const regenChanged = room.tickResourceRegen();
-    const aiChanged = room.tickEnemyAI();
-    const mobChanged = room.tickNeutralMobs();
+    const moveChanged    = room.tickUnitMovement();
+    const gatherChanged  = room.tickGathering();
+    const buildChanged   = room.tickConstruction();
+    const regenChanged   = room.tickResourceRegen();
+    const aiChanged      = room.tickEnemyAI();
+    const mobChanged     = room.tickNeutralMobs();
+    const villageChanged = room.tickVillageTowers() | room.tickVillageSiege();
 
-    if (moveChanged || gatherChanged || buildChanged || regenChanged || aiChanged || mobChanged) {
+    // Flush pending events (arrow shots, captures…)
+    for (const ev of room._pendingEvents.splice(0)) {
+      io.to(code).emit(ev.type, ev);
+    }
+
+    if (moveChanged || gatherChanged || buildChanged || regenChanged || aiChanged || mobChanged || villageChanged) {
       io.to(code).emit('state_update', { shared: room.shared });
     }
   }

@@ -7,6 +7,8 @@ class SocketManager {
   }
 
   connect(serverUrl = '') {
+    // Idempotent — don't reconnect if already connected or connecting
+    if (this.socket?.connected || this.socket?.active) return;
     // Empty string = same origin (proxied in dev, same host in prod)
     this.socket = io(serverUrl, { transports: ['websocket', 'polling'] });
 
@@ -23,6 +25,7 @@ class SocketManager {
     const events = [
       'game_start', 'state_update', 'battle_start', 'battle_update',
       'battle_end', 'player_left', 'player_joined', 'npc_interact', 'error',
+      'village_captured', 'arrow_shot',
     ];
     for (const ev of events) {
       this.socket.on(ev, (data) => this._emit(ev, data));
