@@ -73,7 +73,8 @@ export class BootScene extends Phaser.Scene {
     }
     const mobKeys = ['loup','sanglier','ours'];
     for (const k of mobKeys) {
-      this.load.image(`battle_${k}`, `assets/units/${k}.svg`);
+      this.load.image(`battle_${k}`,       `assets/units/${k}.svg`);
+      this.load.image(`battle_${k}_enemy`, `assets/units/${k}.svg`); // même SVG, clé distincte
     }
     // NPCs
     for (const k of ['ermite','marchand','ancien','scout','pretre','seigneur']) {
@@ -118,7 +119,8 @@ export class BootScene extends Phaser.Scene {
       makeWorld(`battle_${k}_enemy`, `unit_${k}_enemy`);
     }
     for (const k of mobKeys) {
-      makeWorld(`battle_${k}`, `unit_${k}`);
+      makeWorld(`battle_${k}`,       `unit_${k}`);
+      makeWorld(`battle_${k}_enemy`, `unit_${k}_enemy`);
     }
 
     // Boss tyran reuses garde_roi_enemy sprite (scaled up slightly for intimidation)

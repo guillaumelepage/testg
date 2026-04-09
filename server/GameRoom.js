@@ -335,6 +335,8 @@ class GameRoom {
   // ─── Movement ────────────────────────────────────────────────────────────────
 
   _moveUnit(unitId, tx, ty) {
+    // Refuse movement while a battle is in progress (prevents overwriting activeBattle)
+    if (this.activeBattle) return null;
     const unit = this.shared.units.find(u => u.id === unitId);
     if (!unit || unit.owner === 'enemy' || unit.owner === 'neutral') return null;
     if (ty < 0 || ty >= MAP_HEIGHT || tx < 0 || tx >= MAP_WIDTH) return null;
@@ -1530,9 +1532,12 @@ class GameRoom {
       ...this.shared.units.filter(u => u.owner !== 'enemy' && u.owner !== 'neutral'
         && u.id !== triggerPlayer.id && inRange(u)).map(u => u.id),
     ];
+    // Nearby neutral units join the enemy team only when the trigger is neutral (e.g. village guards)
+    const enemyIsNeutral = triggerEnemy.owner === 'neutral';
     const enemyTeamIds = [
       triggerEnemy.id,
-      ...this.shared.units.filter(u => u.owner === 'enemy'
+      ...this.shared.units.filter(u =>
+        (u.owner === 'enemy' || (enemyIsNeutral && u.owner === 'neutral'))
         && u.id !== triggerEnemy.id && inRange(u)).map(u => u.id),
     ];
 

@@ -32,12 +32,16 @@ export class BattleScene extends Phaser.Scene {
     this._drawPlatform(W * 0.72, H * 0.44, 0x2a1a0a, 150, 28);
     this._drawPlatform(W * 0.28, H * 0.63, 0x0a1a0a, 150, 28);
 
+    // Positions de référence pour les animations
+    this._enemySpriteX = W * 0.72; this._enemySpriteY = H * 0.38;
+    this._playerSpriteX = W * 0.28; this._playerSpriteY = H * 0.59;
+
     // ── Enemy sprite ─────────────────────────────────────────────────────────
-    this.enemySprite = this.add.image(W * 0.72, H * 0.38, `battle_${this.enemyUnit?.type}_enemy`)
+    this.enemySprite = this.add.image(this._enemySpriteX, this._enemySpriteY, `battle_${this.enemyUnit?.type}_enemy`)
       .setDisplaySize(112, 112).setDepth(3);
 
     // ── Player sprite ─────────────────────────────────────────────────────────
-    this.playerSprite = this.add.image(W * 0.28, H * 0.59, `battle_${this.playerUnit?.type}`)
+    this.playerSprite = this.add.image(this._playerSpriteX, this._playerSpriteY, `battle_${this.playerUnit?.type}`)
       .setDisplaySize(112, 112).setDepth(3).setFlipX(true);
 
     // ── HP bars ───────────────────────────────────────────────────────────────
@@ -288,27 +292,103 @@ export class BattleScene extends Phaser.Scene {
   }
 
   _onBattleUpdate(data) {
-    const { battle, shared: _ } = data;
-    this._refreshFromBattle(battle);
+    const { battle } = data;
 
-    this._updateHpBar(this.enemyHpBar,  this.enemyUnit);
-    this._updateHpBar(this.playerHpBar, this.playerUnit);
+    // Sauvegarder l'état avant refresh pour détecter morts et changements
+    const prevPlayerId = this.playerUnit?.id;
+    const prevEnemyId  = this.enemyUnit?.id;
+    const prevPlayerHp = this.playerUnit?.hp ?? 0;
+    const prevEnemyHp  = this.enemyUnit?.hp  ?? 0;
+
+    this._refreshFromBattle(battle);
     this.logText.setText(this._fmtLog(battle.log));
 
-    // Update sprites if active fighter changed
-    this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
-    this.playerSprite.setTexture(`battle_${this.playerUnit?.type}`);
+    const enemyDied    = !!prevEnemyId  && this.enemyUnit?.id  !== prevEnemyId;
+    const playerDied   = !!prevPlayerId && this.playerUnit?.id !== prevPlayerId;
+    const enemyWasHit  = !enemyDied  && this.enemyUnit  && this.enemyUnit.hp  < prevEnemyHp;
+    const playerWasHit = !playerDied && this.playerUnit && this.playerUnit.hp < prevPlayerHp;
 
-    // Enemy hit animation
-    this.tweens.add({
-      targets: this.enemySprite, x: `-=${28}`, duration: 80, yoyo: true, ease: 'Power2',
+    // ── Phase 1 : attaque du joueur sur l'ennemi ─────────────────────────────
+    if (enemyWasHit) {
+      // Ennemi blessé mais survit
+      this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+      this.tweens.add({ targets: this.enemySprite, x: `-=${28}`, duration: 80, yoyo: true, ease: 'Power2' });
+      this._phase2(playerWasHit, playerDied, 420);
+
+    } else if (enemyDied) {
+      // Ennemi vaincu → animation mort, puis entrée du suivant
+      this._animDie(this.enemySprite, () => {
+        this._resetSprite(this.enemySprite, this._enemySpriteX, this._enemySpriteY);
+        this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
+        this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+        this._animEnter(this.enemySprite, 'right', () => this._phase2(playerWasHit, playerDied, 80));
+      });
+
+    } else {
+      this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+      this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
+      this._phase2(playerWasHit, playerDied, 420);
+    }
+  }
+
+  // ── Phase 2 : riposte ennemie ─────────────────────────────────────────────
+  _phase2(playerWasHit, playerDied, delay) {
+    this.time.delayedCall(delay, () => {
+      this._updateHpBar(this.playerHpBar, this.playerUnit);
+
+      if (playerWasHit) {
+        this.tweens.add({ targets: this.playerSprite, x: `+=${28}`, duration: 80, yoyo: true, ease: 'Power2' });
+        this.tweens.add({ targets: this.playerSprite, alpha: 0.3, duration: 60, yoyo: true, repeat: 1 });
+        this._finishUpdate(380);
+
+      } else if (playerDied) {
+        // Unité joueur vaincue → mort puis entrée du suivant
+        this._animDie(this.playerSprite, () => {
+          this._resetSprite(this.playerSprite, this._playerSpriteX, this._playerSpriteY);
+          this.playerSprite.setTexture(`battle_${this.playerUnit?.type}`);
+          this._updateHpBar(this.playerHpBar, this.playerUnit);
+          this._animEnter(this.playerSprite, 'left', () => this._finishUpdate(80));
+        });
+
+      } else {
+        this._finishUpdate(200);
+      }
     });
+  }
 
-    this._rebuildRosters();
+  // ── Helpers d'animation ───────────────────────────────────────────────────
 
-    this.time.delayedCall(200, () => {
-      this.actionLocked = false;
-      this._lockButtons(false);
+  _animDie(sprite, onComplete) {
+    this.tweens.add({
+      targets: sprite,
+      y: `+=${64}`, alpha: 0, angle: 28,
+      duration: 380, ease: 'Power2',
+      onComplete,
+    });
+  }
+
+  _resetSprite(sprite, x, y) {
+    sprite.setPosition(x, y).setAlpha(1).setAngle(0);
+  }
+
+  _animEnter(sprite, side, onComplete) {
+    const origX = sprite.x;
+    sprite.x = side === 'right' ? origX + 220 : origX - 220;
+    sprite.setAlpha(0);
+    this.tweens.add({
+      targets: sprite, x: origX, alpha: 1,
+      duration: 300, ease: 'Back.easeOut',
+      onComplete,
+    });
+  }
+
+  _finishUpdate(delay) {
+    this.time.delayedCall(delay, () => {
+      this._rebuildRosters();
+      this.time.delayedCall(100, () => {
+        this.actionLocked = false;
+        this._lockButtons(false);
+      });
     });
   }
 
@@ -358,8 +438,15 @@ export class BattleScene extends Phaser.Scene {
         fontFamily: 'Georgia, serif', fontSize: '15px', color: '#ffffff',
       }).setOrigin(0.5).setDepth(22);
       cont.on('pointerdown', () => {
-        socketManager.off('dungeon_next_room');
-        if (data.shared) this.scene.get('World')?._applyStateUpdate(data.shared);
+        // Unregister battle handlers and restore WorldScene's state listeners
+        socketManager.off('battle_update').off('battle_end').off('dungeon_next_room');
+        const world = this.scene.get('World');
+        if (world) {
+          socketManager
+            .on('battle_update', (d) => world._applyStateUpdate(d.shared))
+            .on('battle_end',    (d) => world._applyStateUpdate(d.shared));
+        }
+        if (data.shared) world?._applyStateUpdate(data.shared);
         this.scene.stop('Battle');
         this.scene.resume('World');
       });

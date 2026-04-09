@@ -4,6 +4,22 @@ class SocketManager {
   constructor() {
     this.socket = null;
     this.handlers = {};
+    this._wasConnected = false;
+    // Restore session from localStorage so it survives page refresh
+    try {
+      const raw = localStorage.getItem('conquete_session');
+      this.session = raw ? JSON.parse(raw) : null;
+    } catch { this.session = null; }
+  }
+
+  setSession(code, name) {
+    this.session = { code, name };
+    try { localStorage.setItem('conquete_session', JSON.stringify({ code, name })); } catch {}
+  }
+
+  clearSession() {
+    this.session = null;
+    try { localStorage.removeItem('conquete_session'); } catch {}
   }
 
   connect(serverUrl = '') {
@@ -14,6 +30,12 @@ class SocketManager {
 
     this.socket.on('connect', () => {
       console.log('[net] connecté', this.socket.id);
+      if (this._wasConnected && this.session) {
+        // Reconnexion en cours de partie → rejoindre automatiquement
+        console.log('[net] reconnexion → rejoin_game', this.session.code);
+        this.socket.emit('rejoin_game', this.session);
+      }
+      this._wasConnected = true;
       this._emit('connected');
     });
     this.socket.on('disconnect', () => {

@@ -205,7 +205,8 @@ export class WorldScene extends Phaser.Scene {
       .on('random_event',      (data) => this.scene.get('UI')?.showMessage(data.message, data.color))
       .on('action_error',      (data) => this.scene.get('UI')?.showMessage(data.message, 0xff4444))
       .on('connected',         ()     => this._onReconnected())
-      .on('disconnected',      ()     => this.scene.get('UI')?.showMessage('⚠ Connexion perdue…', 0xff4444));
+      .on('disconnected',      ()     => this.scene.get('UI')?.showMessage('⚠ Connexion perdue… Reconnexion automatique', 0xff8800))
+      .on('game_start',        (snap) => this._applyStateUpdate(snap.shared));
 
     this.mySocketId = socketManager.socket?.id;
 
@@ -898,14 +899,9 @@ export class WorldScene extends Phaser.Scene {
   // Brief animated arrow-shot line between tower and target
   _onReconnected() {
     if (!this._worldReady) return;
-    const p = this._myPlayer;
-    if (p && this.snapshot?.code) {
-      // Re-register with server using stored player name
-      socketManager.socket.emit('rejoin_game', { code: this.snapshot.code, name: p.name });
-      this.scene.get('UI')?.showMessage('Reconnexion en cours…', 0xffaa44);
-    } else {
-      this.scene.get('UI')?.showMessage('⚠ Connexion perdue — rechargez la page', 0xff4444);
-    }
+    // SocketManager handles rejoin_game automatically on reconnect (see connect handler).
+    // Just show a confirmation message; game_start listener will refresh the state.
+    this.scene.get('UI')?.showMessage('✔ Reconnecté !', 0x44cc88);
   }
 
   _showArrowShot(data) {
@@ -1239,6 +1235,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   _doEnterBattle(battle) {
+    // Guard against double launch (e.g. delayedCall fires after a second battle_start arrives)
+    if (this.scene.isActive('Battle') || this.scene.isPaused('World')) return;
     this.scene.launch('Battle', { battle, worldScene: this });
     this.scene.pause('World');
   }

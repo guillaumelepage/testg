@@ -144,6 +144,7 @@ export class MenuScene extends Phaser.Scene {
       .on('connected', () => {
         this.connTxt?.setText('● Connecté').setColor('#55cc55');
         this._refreshRooms();
+        this._showRejoinBanner();
       })
       .on('disconnected', () => {
         this.connTxt?.setText('● Déconnecté').setColor('#cc3333');
@@ -333,6 +334,7 @@ export class MenuScene extends Phaser.Scene {
         this._showHeroPicker(async (heroType) => {
           try {
             const res = await socketManager.createRoom(name, this.selectedClan.key, heroType);
+            socketManager.setSession(res.code, name);
             this._showWaitingState(res.code, px, py, pw, ph);
           } catch (e) { this._showStatus(e.message, '#ff5533'); }
         });
@@ -571,6 +573,7 @@ export class MenuScene extends Phaser.Scene {
         this._showHeroPicker(async (heroType) => {
           try {
             const res = await socketManager.createRoom(name, this.selectedClan.key, heroType);
+            socketManager.setSession(res.code, name);
             this._showWaitingStateNarrow(res.code, cx, createY, createH, createBtn);
           } catch (e) { this._showStatus(e.message, '#ff5533'); }
         });
@@ -708,7 +711,55 @@ export class MenuScene extends Phaser.Scene {
   async _doJoin(code, name, heroType) {
     try {
       await socketManager.joinRoom(code, name, this.selectedClan.key, heroType || this.selectedHero);
+      socketManager.setSession(code.toUpperCase(), name);
     } catch (e) { this._showStatus(e.message, '#ff5533'); }
+  }
+
+  // ─── Rejoin banner (shown after page refresh if session exists) ──────────────
+
+  _showRejoinBanner() {
+    const sess = socketManager.session;
+    if (!sess) return;
+    if (this._rejoinBanner) return; // already shown
+
+    const { width: W, height: H } = this.cameras.main;
+    const bw = Math.min(460, W * 0.9), bh = 64;
+    const bx = W / 2, by = H - 44;
+
+    const bg = this.add.rectangle(bx, by, bw, bh, 0x1a3a1a, 0.96)
+      .setStrokeStyle(2, 0x44cc88, 0.9).setDepth(50).setScrollFactor(0);
+    const lbl = this.add.text(bx, by - 10,
+      `🔄  Partie en cours détectée  (${sess.code} · ${sess.name})`, {
+        fontFamily: 'Georgia, serif', fontSize: '13px', color: '#88ffcc',
+      }).setOrigin(0.5).setDepth(51).setScrollFactor(0);
+
+    const btnBg = this.add.rectangle(bx, by + 18, 180, 24, 0x2a7a4a, 0.95)
+      .setStrokeStyle(1, 0x44cc88).setInteractive({ useHandCursor: true })
+      .setDepth(51).setScrollFactor(0);
+    const btnTxt = this.add.text(bx, by + 18, 'Reprendre la partie', {
+      fontFamily: 'sans-serif', fontSize: '12px', color: '#ffffff',
+    }).setOrigin(0.5).setDepth(52).setScrollFactor(0);
+
+    const dismissBg = this.add.rectangle(bx + 100, by + 18, 60, 24, 0x3a1a1a, 0.9)
+      .setStrokeStyle(1, 0x884444).setInteractive({ useHandCursor: true })
+      .setDepth(51).setScrollFactor(0);
+    const dismissTxt = this.add.text(bx + 100, by + 18, 'Ignorer', {
+      fontFamily: 'sans-serif', fontSize: '11px', color: '#cc8888',
+    }).setOrigin(0.5).setDepth(52).setScrollFactor(0);
+
+    const banner = [bg, lbl, btnBg, btnTxt, dismissBg, dismissTxt];
+    this._rejoinBanner = banner;
+
+    btnBg.on('pointerdown', () => {
+      banner.forEach(o => o.destroy());
+      this._rejoinBanner = null;
+      socketManager.socket?.emit('rejoin_game', sess);
+    });
+    dismissBg.on('pointerdown', () => {
+      socketManager.clearSession();
+      banner.forEach(o => o.destroy());
+      this._rejoinBanner = null;
+    });
   }
 
   // ─── Waiting state (wide layout) ─────────────────────────────────────────────
