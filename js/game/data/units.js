@@ -145,6 +145,39 @@ export const UNIT_STATS = {
       { name: 'Nova Arcanique', moveType: 'MAGIE', power: 65, desc: 'Explosion magique ultime.' },
     ],
   },
+  paladin: {
+    label: 'Paladin Sacré', faction: 'L\'Ordre Sacré',
+    maxHp: 280, atk: 35, def: 50, spd: 10,
+    color: 0x4a6a9a, accentColor: 0x88ccff,
+    moves: [
+      { name: 'Marteau Divin',   moveType: 'LOURD', power: 38, desc: 'Écrase avec la grâce des cieux.' },
+      { name: 'Bouclier de Foi', moveType: 'LOURD', power: 12, desc: 'Réduit les dégâts reçus.' },
+      { name: 'Lumière Sacrée',  moveType: 'MAGIE', power: 45, desc: 'Rayon de purification.' },
+      { name: 'Jugement Saint',  moveType: 'LOURD', power: 60, desc: 'Frappe ultime au nom du divin.' },
+    ],
+  },
+  assassin: {
+    label: 'Assassin', faction: 'La Guilde des Ombres',
+    maxHp: 130, atk: 62, def: 12, spd: 36,
+    color: 0x1a1a2a, accentColor: 0xcc0044,
+    moves: [
+      { name: 'Lame Jumelle',    moveType: 'LEGER', power: 48, desc: 'Deux coups simultanés.' },
+      { name: 'Croc-en-Jambe',   moveType: 'LEGER', power: 32, desc: 'Déstabilise et frappe.' },
+      { name: 'Poison Mortel',   moveType: 'LEGER', power: 40, desc: 'Lame enduite de venin.' },
+      { name: 'Ombre Mortelle',  moveType: 'LEGER', power: 70, desc: 'Surgit de l\'obscurité.' },
+    ],
+  },
+  necromancien: {
+    label: 'Nécromancien', faction: 'Le Cercle de la Mort',
+    maxHp: 150, atk: 60, def: 14, spd: 16,
+    color: 0x1a2a14, accentColor: 0x44cc44,
+    moves: [
+      { name: 'Toucher Nécrotique', moveType: 'MAGIE', power: 52, desc: 'Draine la force vitale.' },
+      { name: 'Nuage de Miasme',    moveType: 'MAGIE', power: 38, desc: 'Gaz pestilentiel.' },
+      { name: 'Os Brisés',          moveType: 'LOURD', power: 44, desc: 'Invoquer la douleur.' },
+      { name: 'Fléau des Morts',    moveType: 'MAGIE', power: 68, desc: 'Énergie de l\'au-delà.' },
+    ],
+  },
 
   // ── Mobs neutres ───────────────────────────────────────────────────────────
   loup: {
@@ -206,6 +239,9 @@ export const UNIT_MOVE_TYPE = {
   roi_guerrier: 'LOURD',
   chasseresse: 'LEGER',
   mage_arcane: 'MAGIE',
+  paladin: 'LOURD',
+  assassin: 'LEGER',
+  necromancien: 'MAGIE',
   // Mobs neutres
   loup: 'LEGER',
   sanglier: 'CAVALERIE',

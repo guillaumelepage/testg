@@ -347,7 +347,7 @@ export class MenuScene extends Phaser.Scene {
   // ─── Play panel (create + join) ───────────────────────────────────────────────
 
   _buildPlayPanel(px, py, pw, ph, W, H) {
-    const topH = Math.max(150, Math.floor(ph * 0.40));
+    const topH = Math.max(190, Math.floor(ph * 0.46));
     const gap  = 8;
     const botH = ph - topH - gap;
 
@@ -364,19 +364,50 @@ export class MenuScene extends Phaser.Scene {
   _buildCreateSection(px, py, pw, ph, W, H) {
     this._drawPanel(px, py, pw, ph, 'CRÉER UNE PARTIE');
 
-    const descH = Math.floor(ph * 0.28);
     this.add.text(px + 12, py + 36, 'Lancez une partie coopérative. Partagez le code avec votre allié.', {
       fontFamily: 'sans-serif', fontSize: '12px', color: '#777755',
       wordWrap: { width: pw - 24 },
     });
 
-    const btnY = py + 36 + descH + 20;
-    this.createBtn = this._makeButton(px + pw / 2, btnY, pw - 40, 40,
+    // ── Difficulty picker ──────────────────────────────────────────────────────
+    this.selectedDifficulty = 'normal';
+    const DIFFS = [
+      { key: 'facile',   label: 'Facile',    color: 0x226622, sel: 0x44aa44 },
+      { key: 'normal',   label: 'Normal',    color: 0x1a3a5a, sel: 0x3a7aaa },
+      { key: 'difficile',label: 'Difficile', color: 0x6a3a10, sel: 0xcc7722 },
+      { key: 'brutal',   label: 'Brutal',    color: 0x4a1010, sel: 0xcc2222 },
+    ];
+    const diffY = py + 78;
+    this.add.text(px + 12, diffY, 'Difficulté', { fontFamily: 'sans-serif', fontSize: '11px', color: '#c8a060' });
+    const diffBtnW = Math.floor((pw - 24 - 9) / 4);
+    this._diffBtns = [];
+    DIFFS.forEach((d, i) => {
+      const bx = px + 12 + i * (diffBtnW + 3) + diffBtnW / 2;
+      const by = diffY + 18;
+      const isDefault = d.key === 'normal';
+      const bg = this.add.rectangle(bx, by + 11, diffBtnW, 22, isDefault ? d.sel : d.color, 0.9)
+        .setStrokeStyle(isDefault ? 2 : 1, isDefault ? 0xffd700 : 0x444422)
+        .setInteractive({ useHandCursor: true });
+      this.add.text(bx, by + 11, d.label, {
+        fontFamily: 'sans-serif', fontSize: '10px', color: '#d4c090',
+      }).setOrigin(0.5);
+      bg.on('pointerdown', () => {
+        this.selectedDifficulty = d.key;
+        this._diffBtns.forEach(({ btn, def }) => {
+          const active = def.key === d.key;
+          btn.setFillStyle(active ? def.sel : def.color, 0.9).setStrokeStyle(active ? 2 : 1, active ? 0xffd700 : 0x444422);
+        });
+      });
+      this._diffBtns.push({ btn: bg, def: d });
+    });
+
+    const btnY = diffY + 50;
+    this.createBtn = this._makeButton(px + pw / 2, btnY, pw - 40, 36,
       '⚔  Créer la salle  ⚔', 0x3a5080, () => {
         const name = this.nameInput.state.value.trim() || 'Joueur 1';
         this._showHeroPicker(async (heroType) => {
           try {
-            const res = await socketManager.createRoom(name, this.selectedClan.key, heroType);
+            const res = await socketManager.createRoom(name, this.selectedClan.key, heroType, this.selectedDifficulty);
             socketManager.setSession(res.code, name);
             this._showWaitingState(res.code, px, py, pw, ph);
           } catch (e) { this._showStatus(e.message, '#ff5533'); }
@@ -824,87 +855,129 @@ export class MenuScene extends Phaser.Scene {
 
   _showHeroPicker(onConfirm) {
     const { width: W, height: H } = this.cameras.main;
-    const heroes = Object.entries(HERO_DEFS);
-    const cardW  = Math.max(110, Math.floor((Math.min(W, 680) - 80) / heroes.length));
-    const cardH  = Math.max(200, Math.floor(cardW * 1.25));
-    const gap    = Math.max(6, Math.floor(W * 0.012));
-    const totalW = heroes.length * cardW + (heroes.length - 1) * gap;
-    const panelW = Math.min(W - 24, totalW + 48);
-    const panelH = Math.min(H - 48, cardH + 90);
-    const cx = W / 2, cy = H / 2;
+    const heroes   = Object.entries(HERO_DEFS);
+    const COLS     = W < 500 ? 2 : 3;
+    const ROWS     = Math.ceil(heroes.length / COLS);
+    const gap      = 10;
+    const TITLE_H  = 44;
+    const BTN_H    = 52;
 
-    const overlay = [];
-    const dimmer = this.add.rectangle(cx, cy, W, H, 0x000000, 0.82).setDepth(60).setInteractive();
-    const panel  = this.add.rectangle(cx, cy, panelW, panelH, 0x10080e).setDepth(61)
-      .setStrokeStyle(3, 0xc8960c, 0.75);
+    // Panel fills most of screen; cards fill the remaining space
+    const panelW   = Math.min(W - 20, 860);
+    const panelH   = Math.min(H - 20, 600);
+    const gridW    = panelW - 32;
+    const gridH    = panelH - TITLE_H - BTN_H - gap * (ROWS + 1);
+    const cardW    = Math.floor((gridW - gap * (COLS - 1)) / COLS);
+    const cardH    = Math.floor((gridH - gap * (ROWS - 1)) / ROWS);
+
+    const cx = W / 2, cy = H / 2;
+    const panelTop = cy - panelH / 2;
+
+    const overlay  = [];
+    const dimmer   = this.add.rectangle(cx, cy, W, H, 0x000000, 0.85).setDepth(60).setInteractive();
+    const panel    = this.add.rectangle(cx, cy, panelW, panelH, 0x0e0808, 0.98).setDepth(61)
+      .setStrokeStyle(2, 0xc8960c, 0.80);
     overlay.push(dimmer, panel);
 
-    const title = this.add.text(cx, cy - panelH / 2 + 20, 'CHOISISSEZ VOTRE HÉROS', {
-      fontFamily: 'Georgia, serif', fontSize: `${Math.max(13, Math.floor(panelW / 28))}px`, color: '#c8960c',
+    const title = this.add.text(cx, panelTop + 22, 'CHOISISSEZ VOTRE HÉROS', {
+      fontFamily: 'Georgia, serif', fontSize: '16px', color: '#c8960c',
+      shadow: { offsetX: 1, offsetY: 1, color: '#000', blur: 3, fill: true },
     }).setOrigin(0.5).setDepth(62);
     overlay.push(title);
 
-    let pickedKey = this.selectedHero;
-    const cardBgs = {};
-    const startX  = cx - totalW / 2 + cardW / 2;
+    // Grid origin (top-left of first card centre)
+    const gridLeft = cx - gridW / 2 + cardW / 2;
+    const gridTop  = panelTop + TITLE_H + gap + cardH / 2;
+
+    let pickedKey  = this.selectedHero;
+    const cardBgs  = {};
 
     heroes.forEach(([key, def], i) => {
-      const bx = startX + i * (cardW + gap);
-      const by = cy + 10;
-      const top = by - cardH / 2; // absolute top of card
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
+      const bx  = gridLeft  + col * (cardW + gap);
+      const by  = gridTop   + row * (cardH + gap);
+      const top = by - cardH / 2;
+
       const isSelected = key === pickedKey;
 
-      const cardBg = this.add.rectangle(bx, by, cardW, cardH, isSelected ? 0x2a1a06 : 0x14100a, 0.95)
-        .setStrokeStyle(isSelected ? 2 : 1, isSelected ? 0xffd700 : 0x4a3010)
+      const cardBg = this.add.rectangle(bx, by, cardW, cardH,
+        isSelected ? 0x251808 : 0x110a06, 0.97)
+        .setStrokeStyle(isSelected ? 2 : 1, isSelected ? 0xffd700 : 0x3a2808)
         .setInteractive({ useHandCursor: true }).setDepth(62);
       cardBgs[key] = cardBg;
 
-      // Font sizes capped so they can't overflow
-      const iconFs = Math.min(22, Math.max(14, Math.floor(cardW * 0.18)));
-      const namFs  = Math.min(12, Math.max(9,  Math.floor(cardW * 0.08)));
-      const smFs   = Math.min(9,  Math.max(7,  Math.floor(cardW * 0.06)));
+      // Accent bar at top of card using hero accent colour
+      const accentBar = this.add.rectangle(bx, top + 3, cardW - 2, 4, def.accent ?? 0xffd700, 0.70)
+        .setDepth(63);
 
-      // All positions as fixed % of cardH from card top — no overlap possible
-      const iconY  = top + cardH * 0.13;
-      const nameY  = top + cardH * 0.31;
-      const descY  = top + cardH * 0.42;
-      const statsY = top + cardH * 0.60;
-      const movesY = top + cardH * 0.76;
+      // Fixed font sizes — legible regardless of card size
+      const iconFs  = 20;
+      const nameFs  = 11;
+      const smFs    = 9;
 
-      const icon  = this.add.text(bx, iconY, def.icon, { fontSize: `${iconFs}px` })
+      // Proportional positions inside the card
+      const iconY   = top + cardH * 0.14;
+      const nameY   = top + cardH * 0.29;
+      const typeY   = top + cardH * 0.40;
+      const statsY  = top + cardH * 0.50;
+      const movesY  = top + cardH * 0.68;
+
+      const icon = this.add.text(bx, iconY, def.icon, { fontSize: `${iconFs}px` })
         .setOrigin(0.5).setDepth(63);
-      const name  = this.add.text(bx, nameY, def.label, {
-        fontFamily: 'Georgia, serif', fontSize: `${namFs}px`, color: '#c8960c',
+      const name = this.add.text(bx, nameY, def.label, {
+        fontFamily: 'Georgia, serif', fontSize: `${nameFs}px`, color: '#c8960c',
       }).setOrigin(0.5).setDepth(63);
-      const desc  = this.add.text(bx, descY, def.desc, {
-        fontFamily: 'sans-serif', fontSize: `${smFs}px`, color: '#aaaaaa',
-        wordWrap: { width: cardW - 14 }, align: 'center',
-      }).setOrigin(0.5, 0).setDepth(63);
+      const typeBadge = this.add.text(bx, typeY, def.moveType, {
+        fontFamily: 'monospace', fontSize: '8px', color: '#ffffff',
+        backgroundColor: '#00000066', padding: { x: 4, y: 2 },
+      }).setOrigin(0.5).setDepth(63);
       const stats = this.add.text(bx, statsY, [
-        `❤ ${def.maxHp}  ⚔ ${def.atk}  🛡 ${def.def}`,
-        `💨 ${def.spd}   👁 ${def.visionRadius}   ${def.moveType}`,
-      ].join('\n'), {
+        `❤ ${def.maxHp}   ⚔ ${def.atk}   🛡 ${def.def}   💨 ${def.spd}`,
+      ], {
         fontFamily: 'monospace', fontSize: `${smFs}px`, color: '#b0a080', align: 'center',
-      }).setOrigin(0.5, 0).setDepth(63);
-      const moves = this.add.text(bx, movesY, def.moves.map(m => `• ${m.name}`).join('\n'), {
-        fontFamily: 'sans-serif', fontSize: `${smFs}px`, color: '#888866', align: 'center',
-      }).setOrigin(0.5, 0).setDepth(63);
+      }).setOrigin(0.5).setDepth(63);
+      const moves = this.add.text(bx, movesY,
+        def.moves.map(m => `• ${m.name}  (${m.power})`).join('\n'), {
+          fontFamily: 'sans-serif', fontSize: `${smFs}px`, color: '#888866', align: 'center',
+          wordWrap: { width: cardW - 12 },
+        }).setOrigin(0.5, 0).setDepth(63);
 
-      cardBg.on('pointerover', () => { if (key !== pickedKey) cardBg.setStrokeStyle(1, 0xc8960c); });
-      cardBg.on('pointerout',  () => { if (key !== pickedKey) cardBg.setStrokeStyle(1, 0x4a3010); });
+      // Description tooltip appears on hover in a shared area below the grid
+      cardBg.on('pointerover', () => {
+        if (key !== pickedKey) cardBg.setStrokeStyle(1, 0xc8960c);
+        descBox.setText(def.desc).setVisible(true);
+      });
+      cardBg.on('pointerout', () => {
+        if (key !== pickedKey) cardBg.setStrokeStyle(1, 0x3a2808);
+        descBox.setVisible(false);
+      });
       cardBg.on('pointerdown', () => {
         pickedKey = key; this.selectedHero = key;
         for (const [k, bg] of Object.entries(cardBgs)) {
-          bg.setFillStyle(k === key ? 0x2a1a06 : 0x14100a);
-          bg.setStrokeStyle(k === key ? 2 : 1, k === key ? 0xffd700 : 0x4a3010);
+          bg.setFillStyle(k === key ? 0x251808 : 0x110a06);
+          bg.setStrokeStyle(k === key ? 2 : 1, k === key ? 0xffd700 : 0x3a2808);
         }
+        descBox.setText(def.desc).setVisible(true);
       });
-      overlay.push(cardBg, icon, name, desc, stats, moves);
+
+      overlay.push(cardBg, accentBar, icon, name, typeBadge, stats, moves);
     });
 
-    const confirmBg = this.add.rectangle(cx, cy + panelH / 2 - 28, 180, 38, 0x1a3a20, 0.95)
+    // Shared description box between grid and confirm button
+    const descY   = panelTop + panelH - BTN_H - 4;
+    const descBox = this.add.text(cx, descY, '', {
+      fontFamily: 'sans-serif', fontSize: '10px', color: '#aaaaaa',
+      backgroundColor: '#00000055', padding: { x: 6, y: 3 },
+      wordWrap: { width: panelW - 48 }, align: 'center',
+    }).setOrigin(0.5, 1).setDepth(63).setVisible(false);
+    overlay.push(descBox);
+
+    // Confirm button
+    const btnY = panelTop + panelH - BTN_H / 2 + 2;
+    const confirmBg = this.add.rectangle(cx, btnY, 190, 36, 0x1a3a20, 0.96)
       .setInteractive({ useHandCursor: true }).setStrokeStyle(2, 0x44aa66).setDepth(62);
-    const confirmTxt = this.add.text(cx, cy + panelH / 2 - 28, '✓  Confirmer', {
+    const confirmTxt = this.add.text(cx, btnY, '✓  Confirmer', {
       fontFamily: 'Georgia, serif', fontSize: '14px', color: '#88cc88',
     }).setOrigin(0.5).setDepth(63);
     confirmBg.on('pointerover', () => confirmBg.setStrokeStyle(2, 0xffd700));

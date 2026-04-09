@@ -69,9 +69,9 @@ class SocketManager {
     return this;
   }
 
-  createRoom(name, clan, heroType) {
+  createRoom(name, clan, heroType, difficulty = 'normal') {
     return new Promise((resolve, reject) => {
-      this.socket.emit('create_room', { name, clan, heroType }, (res) => {
+      this.socket.emit('create_room', { name, clan, heroType, difficulty }, (res) => {
         if (res.ok) resolve(res);
         else reject(new Error(res.error));
       });

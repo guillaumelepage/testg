@@ -202,6 +202,7 @@ export class WorldScene extends Phaser.Scene {
       .on('player_joined',  (data) => { soundManager.playerJoined(); this.scene.get('UI')?.showMessage(`${data.name} a rejoint la partie !`, 0x44cc88); })
       .on('npc_interact',      (data) => this._showNpcDialogue(data.npc, data.heroId))
       .on('village_captured',  (data) => { soundManager.villageCaptured(); this._onVillageCaptured(data); })
+      .on('village_reclaimed', ()     => { soundManager.eventDanger(); this.scene.get('UI')?.showMessage("⚠ Village repris par l'ennemi !", 0xff6622); })
       .on('arrow_shot',        (data) => this._showArrowShot(data))
       .on('random_event',      (data) => {
         if (data.sound === 'good')        soundManager.eventGood();
@@ -1238,6 +1239,7 @@ export class WorldScene extends Phaser.Scene {
   // ms to walk `dist` tiles for this unit (heroes faster, paysans slower)
   _walkMs(unit, dist) {
     const SPEEDS = { roi_guerrier: 1.8, chasseresse: 1.8, mage_arcane: 1.8,
+                     paladin: 1.8, assassin: 1.8, necromancien: 1.8,
                      chevalier: 1.4, homme_armes: 1.4, garde_roi: 1.4,
                      croise: 1.4, frere_epee: 1.4, compagnie_loup: 1.4,
                      archer: 1.2, mercenaire: 1.2 };

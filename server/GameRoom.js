@@ -120,11 +120,13 @@ function generateMap(seed) {
 }
 
 class GameRoom {
-  constructor(code) {
+  constructor(code, difficulty = 1.0) {
     this.code = code;
     this.players = {};
     this.playerOrder = [];
     this.state = 'waiting';
+    // 0.7 = Facile, 1.0 = Normal, 1.4 = Difficile, 2.0 = Brutal
+    this.difficulty = difficulty;
 
     const seed = Date.now() & 0x7fffffff;
     const { map, resources } = generateMap(seed);
@@ -140,15 +142,18 @@ class GameRoom {
     };
 
     // ── Player starting setup (two town halls, shared co-op) ──────────────────
-    this._addBuilding('town_hall', 4, 4, 'shared');
-    this._addBuilding('town_hall', MAP_WIDTH - 6, MAP_HEIGHT - 6, 'shared');
-    this._addUnit('paysan', 6, 4, 'player');
-    this._addUnit('paysan', 5, 5, 'player');
-    this._addUnit('paysan', MAP_WIDTH - 7, MAP_HEIGHT - 5, 'player');
+    const th1 = this._findValidSpawnArea(4, 4, 2);
+    const th2 = this._findValidSpawnArea(MAP_WIDTH - 6, MAP_HEIGHT - 6, 2);
+    this._addBuilding('town_hall', th1.x, th1.y, 'shared');
+    this._addBuilding('town_hall', th2.x, th2.y, 'shared');
+    this._addUnit('paysan', th1.x + 2, th1.y,     'player');
+    this._addUnit('paysan', th1.x + 1, th1.y + 1, 'player');
+    this._addUnit('paysan', th2.x - 1, th2.y + 1, 'player');
 
     // ── Enemy clan: top-right corner ─────────────────────────────────────────
+    const enemyCamp = this._findValidSpawnArea(MAP_WIDTH - 9, 3, 2);
     this.enemy = {
-      campX: MAP_WIDTH - 9, campY: 3,
+      campX: enemyCamp.x, campY: enemyCamp.y,
       aggroLevel: 0,
       buildTimer: 0,
     };
@@ -207,9 +212,12 @@ class GameRoom {
 
   _addUnit(type, x, y, owner) {
     const stats = UNIT_BASE_STATS[type] || UNIT_BASE_STATS['homme_armes'];
+    const isEnemy = owner === 'enemy';
+    const hpMul = isEnemy ? (this.difficulty || 1.0) : 1.0;
+    const maxHp = Math.round(stats.maxHp * hpMul);
     const unit = {
       id: this._nextId(), type, x, y, owner,
-      hp: stats.maxHp, maxHp: stats.maxHp,
+      hp: maxHp, maxHp,
       moves: stats.moves.slice(),
       gatherState: 'idle',
       targetResource: null,
@@ -245,6 +253,32 @@ class GameRoom {
       }
     }
     return { x: preferX, y: preferY }; // fallback (shouldn't happen)
+  }
+
+  // Find nearest position where a size×size footprint is fully walkable
+  _findValidSpawnArea(preferX, preferY, size = 2) {
+    const clear = (ox, oy) => {
+      for (let dy = 0; dy < size; dy++) {
+        for (let dx = 0; dx < size; dx++) {
+          const nx = ox + dx, ny = oy + dy;
+          if (nx < 0 || nx >= MAP_WIDTH || ny < 0 || ny >= MAP_HEIGHT) return false;
+          const t = this.map[ny][nx];
+          if (t === T.WATER || t === T.MOUNTAIN) return false;
+        }
+      }
+      return true;
+    };
+    for (let radius = 0; radius <= 14; radius++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (radius > 0 && Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+          const nx = preferX + dx, ny = preferY + dy;
+          if (nx < 1 || nx >= MAP_WIDTH - size || ny < 1 || ny >= MAP_HEIGHT - size) continue;
+          if (clear(nx, ny)) return { x: nx, y: ny };
+        }
+      }
+    }
+    return { x: preferX, y: preferY };
   }
 
   // Called when both players are connected (state → 'playing')
@@ -1041,9 +1075,10 @@ class GameRoom {
       const tier = _tier(sp.x, sp.y);
       const def  = TIER_DEF[tier];
 
+      const towerHp = Math.round(def.towerHp * (this.difficulty || 1.0));
       villages.push({
         id: vid, x: sp.x, y: sp.y, level: tier,
-        hp: def.towerHp, maxHp: def.towerHp, capturedBy: null,
+        hp: towerHp, maxHp: towerHp, capturedBy: null,
         loot: {
           wood:  Math.floor((100 + Math.floor(rand() * 150)) * def.lootMul),
           stone: Math.floor(( 40 + Math.floor(rand() * 100)) * def.lootMul),
@@ -1064,7 +1099,7 @@ class GameRoom {
         if (this.map[gy]?.[gx] === T.WATER || this.map[gy]?.[gx] === T.MOUNTAIN) continue;
         this.shared.units.push({
           id: this._nextId(), type: def.guardType, x: gx, y: gy,
-          owner: 'neutral', hp: def.guardHp, maxHp: def.guardHp, moves: [], reward: 15 + tier * 8,
+          owner: 'neutral', hp: Math.round(def.guardHp * (this.difficulty || 1.0)), maxHp: Math.round(def.guardHp * (this.difficulty || 1.0)), moves: [], reward: 15 + tier * 8,
           gatherState: 'idle', targetResource: null,
           inventory: 0, inventoryMax: 0, inventoryType: null,
           villageGuard: vid, homeX: sp.x, homeY: sp.y,
@@ -1209,7 +1244,67 @@ class GameRoom {
     }
     // Transfer buildings inside the village's territory to the player
     this._transferVillageBuildings(village, 'player');
+
+    // Spawn enemy counter-attack force — scales with village level
+    this._spawnVillageCounterAttack(village);
+
     this._pendingEvents.push({ type: 'village_captured', villageId: village.id, loot: village.loot });
+  }
+
+  // Enemy reconquest force recaptures a village tower
+  _reclaimVillage(village) {
+    const TIER_DEF = {
+      1: { towerHp: 200 }, 2: { towerHp: 280 }, 3: { towerHp: 350 },
+      4: { towerHp: 440 }, 5: { towerHp: 550 },
+    };
+    const maxHp = TIER_DEF[village.level || 2]?.towerHp || 280;
+    village.capturedBy = null;
+    village.hp = Math.floor(maxHp * 0.4); // restored to 40% HP
+    // Remove reconquest units targeting this village
+    this.shared.units = this.shared.units.filter(u => u.reconquestTarget !== village.id);
+    // Transfer buildings back to neutral
+    this._transferVillageBuildings(village, 'neutral');
+    this._pendingEvents.push({ type: 'village_reclaimed', villageId: village.id });
+  }
+
+  // Spawn enemy units near a captured village to retake it
+  _spawnVillageCounterAttack(village) {
+    const tier = village.level || 2;
+    const COUNTER_UNIT = {
+      1: 'homme_armes', 2: 'homme_armes', 3: 'frere_epee',
+      4: 'croise',       5: 'garde_roi',
+    };
+    const count      = 2 + Math.floor(tier / 2); // 2-4 units
+    const unitType   = COUNTER_UNIT[tier] || 'homme_armes';
+    const stats      = UNIT_BASE_STATS[unitType] || UNIT_BASE_STATS['homme_armes'];
+    const spawnOffsets = [
+      { dx: -5, dy: 0 }, { dx: 5, dy: 0 },
+      { dx: 0, dy: -5 }, { dx: 0, dy: 5 },
+      { dx: -4, dy: 3 }, { dx: 4, dy: -3 },
+    ];
+
+    let placed = 0;
+    for (const off of spawnOffsets) {
+      if (placed >= count) break;
+      const sx = village.x + off.dx;
+      const sy = village.y + off.dy;
+      if (sx < 1 || sx >= MAP_WIDTH - 1 || sy < 1 || sy >= MAP_HEIGHT - 1) continue;
+      if (this.map[sy]?.[sx] === T.WATER || this.map[sy]?.[sx] === T.MOUNTAIN) continue;
+      if (this.shared.units.find(u => u.x === sx && u.y === sy)) continue;
+
+      this.shared.units.push({
+        id: this._nextId(), type: unitType,
+        x: sx, y: sy, owner: 'enemy',
+        hp: stats.maxHp, maxHp: stats.maxHp,
+        moves: stats.moves.slice(), reward: 0,
+        gatherState: 'idle', targetResource: null,
+        inventory: 0, inventoryMax: 0, inventoryType: null,
+        // Tag this unit as a reconquest force targeting this village
+        reconquestTarget: village.id,
+        targetX: village.x, targetY: village.y,
+      });
+      placed++;
+    }
   }
 
   // Transfer ownership of buildings in this village's radius
@@ -1429,8 +1524,44 @@ class GameRoom {
     this.enemy.aggroLevel = Math.max(0, Math.min(100, this.enemy.aggroLevel + aggroGain - 1));
     const isAggro = this.enemy.aggroLevel >= 30;
 
+    // ── Reconquest units: march toward captured village & attack tower ────────
+    const capturedVillages = (this.shared.villages || []).filter(v => v.capturedBy);
+    for (const unit of enemies) {
+      if (!unit.reconquestTarget) continue;
+      const village = capturedVillages.find(v => v.id === unit.reconquestTarget);
+      if (!village) { unit.reconquestTarget = null; continue; } // village no longer captured
+
+      const dist = Math.abs(unit.x - village.x) + Math.abs(unit.y - village.y);
+      if (dist > 1) {
+        // March toward tower
+        this._stepTowardEnemy(unit, village.x, village.y);
+        changed = true;
+      } else {
+        // Adjacent to tower — attack it
+        const dmg = 20 + Math.floor(Math.random() * 15);
+        village.hp = Math.max(0, (village.hp || 0) - dmg);
+        changed = true;
+        if (village.hp <= 0) {
+          this._reclaimVillage(village);
+        } else {
+          // Trigger battle between this reconquest unit and nearby player units
+          if (!this.activeBattle) {
+            const nearbyPlayers = this.shared.units.filter(u =>
+              u.owner !== 'enemy' && u.owner !== 'neutral' &&
+              Math.abs(u.x - village.x) + Math.abs(u.y - village.y) <= 5
+            );
+            if (nearbyPlayers.length > 0) {
+              const result = this._startBattle(nearbyPlayers[0], unit);
+              if (result) this._pendingEvents.push({ type: 'battle_start', battle: result.battle });
+            }
+          }
+        }
+      }
+    }
+
     // ── Movement ──────────────────────────────────────────────────────────────
     for (const unit of enemies) {
+      if (unit.reconquestTarget) continue; // handled above
       if (isAggro && playerBldgs.length > 0) {
         // Find nearest player building
         let nearestBld = playerBldgs[0], nearestDist = Infinity;
@@ -1466,7 +1597,7 @@ class GameRoom {
         const bx = b.type === 'wall' ? b.x : b.x + 1;
         const by = b.type === 'wall' ? b.y : b.y + 1;
         if (Math.abs(e.x - bx) + Math.abs(e.y - by) <= 1) {
-          b.hp = Math.max(0, b.hp - 5);
+          b.hp = Math.max(0, b.hp - 12);
           if (b.hp <= 0) this.shared.buildings = this.shared.buildings.filter(x => x.id !== b.id);
           changed = true; break;
         }
@@ -1735,6 +1866,8 @@ class GameRoom {
     for (const art of (defUnit?.artifacts || [])) { if (art.stat === 'def') def += art.value; }
     // Nuit de sang: enemy units deal +20% dmg
     if (this.shared.nightOfBlood > 0 && (atkUnit?.owner === 'enemy' || atkUnit?.owner === 'neutral')) atk *= 1.2;
+    // Enemy damage scales with difficulty (base × difficulty, min ×1)
+    if (atkUnit?.owner === 'enemy') atk *= Math.max(1.0, this.difficulty || 1.0);
     const base = move.power * (atk / Math.max(1, def));
     const effectiveness = TYPE_CHART[move.moveType]?.[UNIT_MOVE_TYPE[defUnitType]] ?? 1;
     return Math.round(base * effectiveness * (0.85 + Math.random() * 0.15));
@@ -1754,6 +1887,7 @@ const TYPE_CHART = {
 const UNIT_SPEED = {
   // Heroes × 1.8
   roi_guerrier: 1.8, chasseresse: 1.8, mage_arcane: 1.8,
+  paladin: 1.8, assassin: 1.8, necromancien: 1.8,
   // Attack troops × 1.4
   homme_armes: 1.4, archer: 1.4, chevalier: 1.4,
   garde_roi: 1.4, croise: 1.4, mercenaire: 1.4,
@@ -1772,6 +1906,7 @@ const UNIT_MOVE_TYPE = {
   loup: 'LEGER', sanglier: 'CAVALERIE', ours: 'LOURD',
   // Heroes
   roi_guerrier: 'LOURD', chasseresse: 'LEGER', mage_arcane: 'MAGIE',
+  paladin: 'LOURD', assassin: 'LEGER', necromancien: 'MAGIE',
 };
 
 const UNIT_BASE_STATS = {
@@ -1888,6 +2023,8 @@ const BUILDING_COSTS = {
   lumber_mill: { wood: 50, stone: 30 },
   market:      { wood: 60, stone: 40, gold: 30 },
   tower:       { wood: 40, stone: 80, gold: 20 },
+  church:      { wood: 70, stone: 80, gold: 40 },
+  stable:      { wood: 80, stone: 30, food: 40 },
   wall:        { stone: 15, wood: 5 },
 };
 
@@ -1934,12 +2071,45 @@ const HERO_BASE_STATS = {
     ],
     startEquip: { weapon: 'baton_bois', armor: 'robe_bure', accessory: null },
   },
+  paladin: {
+    maxHp: 280, atk: 35, def: 50, spd: 10,
+    moves: [
+      { name: 'Marteau Divin',   moveType: 'LOURD', power: 38, desc: 'Écrase avec la grâce des cieux.' },
+      { name: 'Bouclier de Foi', moveType: 'LOURD', power: 12, desc: 'Réduit les dégâts reçus.' },
+      { name: 'Lumière Sacrée',  moveType: 'MAGIE', power: 45, desc: 'Rayon de purification.' },
+      { name: 'Jugement Saint',  moveType: 'LOURD', power: 60, desc: 'Frappe ultime au nom du divin.' },
+    ],
+    startEquip: { weapon: 'epee_rouille', armor: 'armure_rouille', accessory: null },
+  },
+  assassin: {
+    maxHp: 130, atk: 62, def: 12, spd: 36,
+    moves: [
+      { name: 'Lame Jumelle',    moveType: 'LEGER', power: 48, desc: 'Deux coups simultanés.' },
+      { name: 'Croc-en-Jambe',   moveType: 'LEGER', power: 32, desc: 'Déstabilise et frappe.' },
+      { name: 'Poison Mortel',   moveType: 'LEGER', power: 40, desc: 'Lame enduite de venin.' },
+      { name: 'Ombre Mortelle',  moveType: 'LEGER', power: 70, desc: 'Surgit de l\'obscurité.' },
+    ],
+    startEquip: { weapon: 'epee_rouille', armor: 'armure_rouille', accessory: null },
+  },
+  necromancien: {
+    maxHp: 150, atk: 60, def: 14, spd: 16,
+    moves: [
+      { name: 'Toucher Nécrotique', moveType: 'MAGIE', power: 52, desc: 'Draine la force vitale.' },
+      { name: 'Nuage de Miasme',    moveType: 'MAGIE', power: 38, desc: 'Gaz pestilentiel.' },
+      { name: 'Os Brisés',          moveType: 'LOURD', power: 44, desc: 'Invoquer la douleur.' },
+      { name: 'Fléau des Morts',    moveType: 'MAGIE', power: 68, desc: 'Énergie de l\'au-delà.' },
+    ],
+    startEquip: { weapon: 'baton_bois', armor: 'robe_bure', accessory: null },
+  },
 };
 
 // Hero stats also available via UNIT_BASE_STATS for battle lookup
 UNIT_BASE_STATS.roi_guerrier = { ...HERO_BASE_STATS.roi_guerrier };
 UNIT_BASE_STATS.chasseresse  = { ...HERO_BASE_STATS.chasseresse  };
 UNIT_BASE_STATS.mage_arcane  = { ...HERO_BASE_STATS.mage_arcane  };
+UNIT_BASE_STATS.paladin      = { ...HERO_BASE_STATS.paladin      };
+UNIT_BASE_STATS.assassin     = { ...HERO_BASE_STATS.assassin     };
+UNIT_BASE_STATS.necromancien = { ...HERO_BASE_STATS.necromancien };
 
 // XP thresholds per level (index = level)
 const XP_PER_LEVEL = [0, 0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700];

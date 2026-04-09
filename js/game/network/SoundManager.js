@@ -13,8 +13,6 @@ class SoundManager {
     if (!this._ctx) {
       try { this._ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; }
     }
-    // Resume if browser suspended it (autoplay policy)
-    if (this._ctx.state === 'suspended') this._ctx.resume();
     return this._ctx;
   }
 
@@ -22,10 +20,15 @@ class SoundManager {
    * Play a sequence of tones.
    * @param {Array<{freq: number, dur: number, vol?: number, type?: OscillatorType, delay?: number}>} notes
    */
-  _play(notes) {
+  async _play(notes) {
     if (!this._enabled) return;
     const ctx = this._getCtx();
     if (!ctx) return;
+    // Browser autoplay policy suspends AudioContext until a user gesture.
+    // Must await resume() before scheduling — fire-and-forget fails silently.
+    if (ctx.state === 'suspended') {
+      try { await ctx.resume(); } catch { return; }
+    }
     const now = ctx.currentTime;
     for (const n of notes) {
       const osc  = ctx.createOscillator();

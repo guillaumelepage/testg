@@ -66,10 +66,10 @@ export class BootScene extends Phaser.Scene {
       this.load.image(`battle_${k}`,       `assets/units/${k}.svg`);
       this.load.image(`battle_${k}_enemy`, `assets/units/${k}_enemy.svg`);
     }
-    const heroKeys = ['roi_guerrier','chasseresse','mage_arcane'];
+    const heroKeys = ['roi_guerrier','chasseresse','mage_arcane','paladin','assassin','necromancien'];
     for (const k of heroKeys) {
       this.load.image(`battle_${k}`,       `assets/units/${k}.svg`);
-      this.load.image(`battle_${k}_enemy`, `assets/units/${k}_enemy.svg`);
+      this.load.image(`battle_${k}_enemy`, `assets/units/${k}.svg`); // même SVG, clé distincte
     }
     const mobKeys = ['loup','sanglier','ours'];
     for (const k of mobKeys) {
@@ -97,7 +97,7 @@ export class BootScene extends Phaser.Scene {
     // Generate 36×36 world sprites by scaling down the 96×96 battle SVG images
     const SCALE = 36 / 96;
     const unitKeys = ['paysan','homme_armes','archer','chevalier','garde_roi','croise','mercenaire','compagnie_loup','frere_epee'];
-    const heroKeys = ['roi_guerrier','chasseresse','mage_arcane'];
+    const heroKeys = ['roi_guerrier','chasseresse','mage_arcane','paladin','assassin','necromancien'];
     const mobKeys  = ['loup','sanglier','ours'];
 
     const makeWorld = (battleKey, worldKey) => {

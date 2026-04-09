@@ -42,6 +42,48 @@ export const HERO_DEFS = {
     ],
     startEquip: { weapon: 'baton_bois', armor: 'robe_bure', accessory: null },
   },
+  paladin: {
+    label: 'Paladin Sacré', icon: '🛡',
+    desc: 'Bastion indestructible béni par la lumière. Absorbe les coups pour ses alliés.',
+    color: 0x4a6a9a, accent: 0x88ccff,
+    maxHp: 280, atk: 35, def: 50, spd: 10, visionRadius: 5,
+    moveType: 'LOURD',
+    moves: [
+      { name: 'Marteau Divin',   moveType: 'LOURD', power: 38, desc: 'Écrase avec la grâce des cieux.' },
+      { name: 'Bouclier de Foi', moveType: 'LOURD', power: 12, desc: 'Réduit les dégâts reçus.' },
+      { name: 'Lumière Sacrée',  moveType: 'MAGIE', power: 45, desc: 'Rayon de purification.' },
+      { name: 'Jugement Saint',  moveType: 'LOURD', power: 60, desc: 'Frappe ultime au nom du divin.' },
+    ],
+    startEquip: { weapon: 'epee_rouille', armor: 'armure_rouille', accessory: null },
+  },
+  assassin: {
+    label: 'Assassin', icon: '🗡',
+    desc: 'Ombre implacable. Frappe en premier et disparaît. Lames empoisonnées.',
+    color: 0x1a1a2a, accent: 0xcc0044,
+    maxHp: 130, atk: 62, def: 12, spd: 36, visionRadius: 7,
+    moveType: 'LEGER',
+    moves: [
+      { name: 'Lame Jumelle',    moveType: 'LEGER', power: 48, desc: 'Deux coups simultanés.' },
+      { name: 'Croc-en-Jambe',   moveType: 'LEGER', power: 32, desc: 'Déstabilise et frappe.' },
+      { name: 'Poison Mortel',   moveType: 'LEGER', power: 40, desc: 'Lame enduite de venin.' },
+      { name: 'Ombre Mortelle',  moveType: 'LEGER', power: 70, desc: 'Surgit de l\'obscurité.' },
+    ],
+    startEquip: { weapon: 'epee_rouille', armor: 'armure_rouille', accessory: null },
+  },
+  necromancien: {
+    label: 'Nécromancien', icon: '💀',
+    desc: 'Maître de la mort et du chaos. Puissance nécrotique dévastatrice. Voit loin dans l\'obscurité.',
+    color: 0x1a2a14, accent: 0x44cc44,
+    maxHp: 150, atk: 60, def: 14, spd: 16, visionRadius: 9,
+    moveType: 'MAGIE',
+    moves: [
+      { name: 'Toucher Nécrotique', moveType: 'MAGIE', power: 52, desc: 'Draine la force vitale.' },
+      { name: 'Nuage de Miasme',    moveType: 'MAGIE', power: 38, desc: 'Gaz pestilentiel.' },
+      { name: 'Os Brisés',          moveType: 'LOURD', power: 44, desc: 'Invoquer la douleur.' },
+      { name: 'Fléau des Morts',    moveType: 'MAGIE', power: 68, desc: 'Énergie de l\'au-delà.' },
+    ],
+    startEquip: { weapon: 'baton_bois', armor: 'robe_bure', accessory: null },
+  },
 };
 
 // XP required to reach level N (index = level, level 1 = 0 XP)

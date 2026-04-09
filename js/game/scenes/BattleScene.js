@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { socketManager } from '../network/SocketManager';
+import { soundManager } from '../network/SoundManager';
 import { UNIT_STATS, TYPE_CHART, UNIT_MOVE_TYPE } from '../data/units';
 
 export class BattleScene extends Phaser.Scene {
@@ -35,6 +36,9 @@ export class BattleScene extends Phaser.Scene {
     // Positions de référence pour les animations
     this._enemySpriteX = W * 0.72; this._enemySpriteY = H * 0.38;
     this._playerSpriteX = W * 0.28; this._playerSpriteY = H * 0.59;
+
+    // ── Queued enemy ghosts (behind active sprite) ────────────────────────────
+    this._buildEnemyGhosts(W, H);
 
     // ── Enemy sprite ─────────────────────────────────────────────────────────
     this.enemySprite = this.add.image(this._enemySpriteX, this._enemySpriteY, `battle_${this.enemyUnit?.type}_enemy`)
@@ -105,6 +109,38 @@ export class BattleScene extends Phaser.Scene {
     const g = this.add.graphics().setDepth(2);
     g.fillStyle(color, 0.8); g.fillEllipse(x, y, w, h);
     g.lineStyle(2, 0xc8960c, 0.25); g.strokeEllipse(x, y, w, h);
+  }
+
+  // ─── Queued enemy ghosts ──────────────────────────────────────────────────
+
+  _buildEnemyGhosts(W, H) {
+    this.enemyGhosts = [];
+    // Units after the current one that are still alive
+    const queued = this.enemyTeam.slice(this.currentEnemyIdx + 1).filter(u => u.hp > 0);
+    if (queued.length === 0) return;
+
+    // Stack positions: slightly right and behind the main sprite, shrinking
+    const configs = [
+      { offX: W * 0.10, offY: H * 0.04, size: 72, alpha: 0.42 },
+      { offX: W * 0.18, offY: H * 0.08, size: 52, alpha: 0.26 },
+    ];
+
+    queued.slice(0, configs.length).forEach((unit, i) => {
+      const cfg = configs[i];
+      const sx = this._enemySpriteX + cfg.offX;
+      const sy = this._enemySpriteY + cfg.offY;
+      const ghost = this.add.image(sx, sy, `battle_${unit.type}_enemy`)
+        .setDisplaySize(cfg.size, cfg.size)
+        .setAlpha(cfg.alpha)
+        .setDepth(2); // behind active sprite (depth 3)
+      this.enemyGhosts.push(ghost);
+    });
+  }
+
+  _rebuildEnemyGhosts() {
+    for (const g of (this.enemyGhosts || [])) g.destroy();
+    const { width: W, height: H } = this.cameras.main;
+    this._buildEnemyGhosts(W, H);
   }
 
   // ─── HP bar ───────────────────────────────────────────────────────────────
@@ -285,10 +321,7 @@ export class BattleScene extends Phaser.Scene {
   _playerMove(moveIndex) {
     this.actionLocked = true;
     this._lockButtons(true);
-    this.tweens.add({
-      targets: this.playerSprite, x: `+=${40}`, duration: 100, yoyo: true, ease: 'Power2',
-      onComplete: () => socketManager.sendAction({ type: 'BATTLE_MOVE', moveIndex }),
-    });
+    socketManager.sendAction({ type: 'BATTLE_MOVE', moveIndex });
   }
 
   _onBattleUpdate(data) {
@@ -308,49 +341,58 @@ export class BattleScene extends Phaser.Scene {
     const enemyWasHit  = !enemyDied  && this.enemyUnit  && this.enemyUnit.hp  < prevEnemyHp;
     const playerWasHit = !playerDied && this.playerUnit && this.playerUnit.hp < prevPlayerHp;
 
-    // ── Phase 1 : attaque du joueur sur l'ennemi ─────────────────────────────
-    if (enemyWasHit) {
-      // Ennemi blessé mais survit
-      this._updateHpBar(this.enemyHpBar, this.enemyUnit);
-      this.tweens.add({ targets: this.enemySprite, x: `-=${28}`, duration: 80, yoyo: true, ease: 'Power2' });
-      this._phase2(playerWasHit, playerDied, 420);
-
-    } else if (enemyDied) {
-      // Ennemi vaincu → animation mort, puis entrée du suivant
-      this._animDie(this.enemySprite, () => {
-        this._resetSprite(this.enemySprite, this._enemySpriteX, this._enemySpriteY);
-        this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
+    // ── Phase 1 : attaque du joueur (lunge forward) ──────────────────────────
+    this._animAttack(this.playerSprite, +52, () => {
+      if (enemyWasHit) {
+        // Ennemi blessé : recul + barre HP
         this._updateHpBar(this.enemyHpBar, this.enemyUnit);
-        this._animEnter(this.enemySprite, 'right', () => this._phase2(playerWasHit, playerDied, 80));
-      });
+        this.tweens.add({ targets: this.enemySprite, x: `-=${28}`, duration: 80, yoyo: true, ease: 'Power2' });
+        this.tweens.add({ targets: this.enemySprite, alpha: 0.4, duration: 60, yoyo: true, repeat: 1 });
+        this._phase2(playerWasHit, playerDied, 2000);
 
-    } else {
-      this._updateHpBar(this.enemyHpBar, this.enemyUnit);
-      this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
-      this._phase2(playerWasHit, playerDied, 420);
-    }
-  }
-
-  // ── Phase 2 : riposte ennemie ─────────────────────────────────────────────
-  _phase2(playerWasHit, playerDied, delay) {
-    this.time.delayedCall(delay, () => {
-      this._updateHpBar(this.playerHpBar, this.playerUnit);
-
-      if (playerWasHit) {
-        this.tweens.add({ targets: this.playerSprite, x: `+=${28}`, duration: 80, yoyo: true, ease: 'Power2' });
-        this.tweens.add({ targets: this.playerSprite, alpha: 0.3, duration: 60, yoyo: true, repeat: 1 });
-        this._finishUpdate(380);
-
-      } else if (playerDied) {
-        // Unité joueur vaincue → mort puis entrée du suivant
-        this._animDie(this.playerSprite, () => {
-          this._resetSprite(this.playerSprite, this._playerSpriteX, this._playerSpriteY);
-          this.playerSprite.setTexture(`battle_${this.playerUnit?.type}`);
-          this._updateHpBar(this.playerHpBar, this.playerUnit);
-          this._animEnter(this.playerSprite, 'left', () => this._finishUpdate(80));
+      } else if (enemyDied) {
+        // Ennemi vaincu : mort → nouveau adversaire entre
+        this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+        this._animDie(this.enemySprite, () => {
+          this._rebuildEnemyGhosts();
+          this._resetSprite(this.enemySprite, this._enemySpriteX, this._enemySpriteY);
+          this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
+          this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+          this._animEnter(this.enemySprite, 'right', () => this._phase2(playerWasHit, playerDied, 2000));
         });
 
       } else {
+        this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+        this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
+        this._phase2(playerWasHit, playerDied, 2000);
+      }
+    });
+  }
+
+  // ── Phase 2 : riposte ennemie (après 2 s) ────────────────────────────────
+  _phase2(playerWasHit, playerDied, delay) {
+    this.time.delayedCall(delay, () => {
+      if (playerWasHit || playerDied) {
+        // Ennemi se précipite vers le joueur (lunge left)
+        this._animAttack(this.enemySprite, -52, () => {
+          this._updateHpBar(this.playerHpBar, this.playerUnit);
+
+          if (playerWasHit) {
+            this.tweens.add({ targets: this.playerSprite, x: `+=${28}`, duration: 80, yoyo: true, ease: 'Power2' });
+            this.tweens.add({ targets: this.playerSprite, alpha: 0.3, duration: 60, yoyo: true, repeat: 1 });
+            this._finishUpdate(380);
+
+          } else if (playerDied) {
+            this._animDie(this.playerSprite, () => {
+              this._resetSprite(this.playerSprite, this._playerSpriteX, this._playerSpriteY);
+              this.playerSprite.setTexture(`battle_${this.playerUnit?.type}`);
+              this._updateHpBar(this.playerHpBar, this.playerUnit);
+              this._animEnter(this.playerSprite, 'left', () => this._finishUpdate(80));
+            });
+          }
+        });
+      } else {
+        // Pas de riposte (ennemi neutralisé en phase 1)
         this._finishUpdate(200);
       }
     });
@@ -382,9 +424,22 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
+  // Sprite lunges forward by dx px then snaps back; fires onComplete after full round-trip
+  _animAttack(sprite, dx, onComplete) {
+    this.tweens.add({
+      targets: sprite,
+      x: `+=${dx}`,
+      duration: 180,
+      ease: 'Power2',
+      yoyo: true,
+      onComplete,
+    });
+  }
+
   _finishUpdate(delay) {
     this.time.delayedCall(delay, () => {
       this._rebuildRosters();
+      this._rebuildEnemyGhosts();
       this.time.delayedCall(100, () => {
         this.actionLocked = false;
         this._lockButtons(false);
@@ -440,25 +495,37 @@ export class BattleScene extends Phaser.Scene {
       cont.on('pointerdown', () => {
         // Unregister battle handlers and restore WorldScene's state listeners
         socketManager.off('battle_update').off('battle_end').off('dungeon_next_room');
-        const world = this.scene.get('World');
+        const world = this.scene.get('World') || this.worldScene;
         if (world) {
           socketManager
             .on('battle_update', (d) => world._applyStateUpdate(d.shared))
-            .on('battle_end',    (d) => world._applyStateUpdate(d.shared));
+            .on('battle_end',    (d) => world._applyStateUpdate(d.shared))
+            .on('battle_start',  (d) => { soundManager.battleStart(); world._enterBattle(d.battle); });
         }
         if (data.shared) world?._applyStateUpdate(data.shared);
+        // Resume World via its own ScenePlugin before stopping Battle —
+        // avoids Phaser silently dropping the resume when called from a
+        // scene that is mid-shutdown (the issue that blocked movement after dungeons).
+        if (world?.scene) world.scene.resume();
         this.scene.stop('Battle');
-        this.scene.resume('World');
       });
     });
   }
 
   _onDungeonNextRoom(data) {
-    // Unregister listeners, then restart BattleScene with next room data
+    // Reset the BattleScene in-place rather than stop+relaunch.
+    // Stopping and relaunching would create a new Phaser scene lifecycle, which
+    // caused scene.resume('World') to fail silently at the end of the dungeon.
     socketManager.off('battle_update').off('battle_end').off('dungeon_next_room');
-    const worldScene = this.worldScene;
-    this.scene.stop('Battle');
-    this.scene.launch('Battle', { battle: data.battle, worldScene });
+
+    // Destroy all existing game objects and animations
+    this.children.list.slice().forEach(o => o.destroy());
+    this.tweens.killAll();
+    this.actionLocked = false;
+
+    // Reload with next-room battle data
+    this._refreshFromBattle(data.battle);
+    this.create();
   }
 
   _fmtLog(arr) {

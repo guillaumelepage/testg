@@ -80,10 +80,12 @@ io.on('connection', (socket) => {
     cb(available);
   });
 
-  socket.on('create_room', ({ name, clan, heroType }, cb) => {
+  socket.on('create_room', ({ name, clan, heroType, difficulty }, cb) => {
+    const DIFF_MAP = { facile: 0.7, normal: 1.0, difficile: 1.4, brutal: 2.0 };
+    const diff = DIFF_MAP[difficulty] ?? 1.0;
     let code;
     do { code = generateCode(); } while (rooms.has(code));
-    const room = new GameRoom(code);
+    const room = new GameRoom(code, diff);
     rooms.set(code, room);
     room.join(socket.id, name, clan, heroType);
     socket.join(code);
