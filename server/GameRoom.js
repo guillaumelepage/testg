@@ -1239,6 +1239,8 @@ class GameRoom {
   _captureVillage(village) {
     village.capturedBy = 'player';
     village.hp = 0;
+    village.captureTimer = null;
+    village.capturingEnemyId = null;
     for (const [res, amt] of Object.entries(village.loot || {})) {
       this.shared.resources[res] = (this.shared.resources[res] || 0) + amt;
     }
@@ -1266,6 +1268,8 @@ class GameRoom {
     const maxHp = TIER_DEF[village.level || 2]?.towerHp || 280;
     village.capturedBy = null;
     village.hp = Math.floor(maxHp * 0.4); // restored to 40% HP
+    village.captureTimer = null;
+    village.capturingEnemyId = null;
     // Remove reconquest units targeting this village
     this.shared.units = this.shared.units.filter(u => u.reconquestTarget !== village.id);
     // Transfer buildings back to neutral
@@ -1531,6 +1535,18 @@ class GameRoom {
     const isAggro = this.enemy.aggroLevel >= 30;
 
     // ── Reconquest units: march toward captured village & attack tower ────────
+    // Check if any village's capturing unit was killed → cancel capture timer
+    for (const v of (this.shared.villages || [])) {
+      if (v.capturingEnemyId && !this.shared.units.find(u => u.id === v.capturingEnemyId)) {
+        // Capturing unit is dead — restore partial HP and cancel timer
+        const TIER_DEF = { 1: 200, 2: 280, 3: 350, 4: 440, 5: 550 };
+        v.hp = Math.floor((TIER_DEF[v.level || 2] || 280) * 0.25);
+        v.captureTimer = null;
+        v.capturingEnemyId = null;
+        this._pendingEvents.push({ type: 'village_capture_interrupted', villageId: v.id });
+        changed = true;
+      }
+    }
     const capturedVillages = (this.shared.villages || []).filter(v => v.capturedBy);
     for (const unit of enemies) {
       if (!unit.reconquestTarget) continue;
@@ -1543,15 +1559,19 @@ class GameRoom {
         this._stepTowardEnemy(unit, village.x, village.y);
         changed = true;
       } else {
-        // Adjacent to tower — attack it
-        const dmg = 20 + Math.floor(Math.random() * 15);
-        village.hp = Math.max(0, (village.hp || 0) - dmg);
+        // Adjacent to tower — attack it or hold for capture timer
         changed = true;
-        if (village.hp <= 0) {
-          this._reclaimVillage(village);
-        } else {
-          // Trigger battle between this reconquest unit and nearby player units
-          if (!this.activeBattle) {
+        if (!village.capturingEnemyId) {
+          // Phase 1: chip down HP
+          const dmg = 20 + Math.floor(Math.random() * 15);
+          village.hp = Math.max(0, (village.hp || 0) - dmg);
+          if (village.hp <= 0) {
+            // HP depleted — start possession timer
+            village.captureTimer = 0;
+            village.capturingEnemyId = unit.id;
+            this._pendingEvents.push({ type: 'village_capture_progress', villageId: village.id, ticks: 0, maxTicks: 8 });
+          } else if (!this.activeBattle) {
+            // Trigger battle with nearby player units while tower is still up
             const nearbyPlayers = this.shared.units.filter(u =>
               u.owner !== 'enemy' && u.owner !== 'neutral' &&
               Math.abs(u.x - village.x) + Math.abs(u.y - village.y) <= 5
@@ -1560,6 +1580,26 @@ class GameRoom {
               const result = this._startBattle(nearbyPlayers[0], unit);
               if (result) this._pendingEvents.push({ type: 'battle_start', battle: result.battle });
             }
+          }
+        } else if (village.capturingEnemyId === unit.id) {
+          // Phase 2: hold the tower (possession timer)
+          village.captureTimer = (village.captureTimer || 0) + 1;
+          this._pendingEvents.push({ type: 'village_capture_progress', villageId: village.id, ticks: village.captureTimer, maxTicks: 8 });
+          if (!this.activeBattle) {
+            // Player can interrupt by attacking the capturing unit
+            const nearbyPlayers = this.shared.units.filter(u =>
+              u.owner !== 'enemy' && u.owner !== 'neutral' &&
+              Math.abs(u.x - village.x) + Math.abs(u.y - village.y) <= 4
+            );
+            if (nearbyPlayers.length > 0) {
+              const result = this._startBattle(nearbyPlayers[0], unit);
+              if (result) this._pendingEvents.push({ type: 'battle_start', battle: result.battle });
+            }
+          }
+          if (village.captureTimer >= 8) {
+            village.captureTimer = null;
+            village.capturingEnemyId = null;
+            this._reclaimVillage(village);
           }
         }
       }
@@ -1789,6 +1829,19 @@ class GameRoom {
         this.shared.resources[rType] = (this.shared.resources[rType] || 0) + reward;
         log.push(`💰 +${reward} ${rType} !`);
         if (playerUnit.isHero) this._updateQuestProgress(playerUnit, 'kill_mobs', enemyUnit.type);
+      }
+      // Grant XP to hero in player team
+      const hero = b.playerTeamIds.map(id => this.shared.units.find(u => u.id === id)).find(u => u?.isHero);
+      if (hero) {
+        const xpGain = Math.round(((UNIT_BASE_STATS[enemyUnit.type] || UNIT_BASE_STATS['homme_armes']).maxHp || 50) / 5);
+        hero.xp = (hero.xp || 0) + xpGain;
+        log.push(`✨ +${xpGain} XP`);
+        while (hero.level < XP_PER_LEVEL.length - 1 && hero.xp >= XP_PER_LEVEL[hero.level + 1]) {
+          hero.level++;
+          hero.maxHp += 15;
+          hero.hp = Math.min(hero.hp + 15, hero.maxHp);
+          log.push(`⬆ ${hero.type} passe au niveau ${hero.level} !`);
+        }
       }
       this.shared.units = this.shared.units.filter(u => u.id !== enemyUnit.id);
       b.currentEnemyIdx++;

@@ -207,7 +207,8 @@ export class WorldScene extends Phaser.Scene {
       .on('player_joined',  (data) => { soundManager.playerJoined(); this.scene.get('UI')?.showMessage(`${data.name} a rejoint la partie !`, 0x44cc88); })
       .on('npc_interact',      (data) => this._showNpcDialogue(data.npc, data.heroId))
       .on('village_captured',  (data) => { soundManager.villageCaptured(); this._onVillageCaptured(data); })
-      .on('village_reclaimed', ()     => { soundManager.eventDanger(); this.scene.get('UI')?.showMessage("⚠ Village repris par l'ennemi !", 0xff6622); })
+      .on('village_reclaimed',          ()     => { soundManager.eventDanger(); this.scene.get('UI')?.showMessage("⚠ Village repris par l'ennemi !", 0xff6622); })
+      .on('village_capture_interrupted', ()     => { soundManager.eventGood();   this.scene.get('UI')?.showMessage('✔ Prise de possession interrompue !', 0x44cc88); })
       .on('arrow_shot',        (data) => this._showArrowShot(data))
       .on('random_event',      (data) => {
         if (data.sound === 'good')        soundManager.eventGood();
@@ -833,6 +834,15 @@ export class WorldScene extends Phaser.Scene {
           if (objs.lbl?.active) objs.lbl.setText('✦ Village allié').setColor('#ffd700');
         }
       } else {
+        // Restore to enemy/neutral state if it was previously captured
+        if (objs.tower?.active && objs.tower.texture?.key === 'village_tower_cap') {
+          objs.tower.setTexture('village_tower');
+          const wx = village.x * TILE_SIZE + TILE_SIZE / 2;
+          const wy = village.y * TILE_SIZE + TILE_SIZE / 2;
+          this._drawVillageRing(objs.ring, wx, wy, false);
+          if (objs.lbl?.active) objs.lbl.setColor('#ff6644');
+        }
+
         // Show HP bar only when visible
         objs.hpBg?.setVisible(vis);
         objs.hpFill?.setVisible(vis);
@@ -845,9 +855,10 @@ export class WorldScene extends Phaser.Scene {
           const col = pct > 0.5 ? 0x22cc22 : pct > 0.25 ? 0xddaa00 : 0xcc2222;
           objs.hpFill.setFillStyle(col);
 
-          // Update label with level info (in case it wasn't visible before)
+          // Update label
           const lvlStr = village.level ? ` Niv.${village.level}` : '';
-          if (objs.lbl?.active) objs.lbl.setText(`⚔ Village ennemi${lvlStr}`);
+          const capStr = village.capturingEnemyId ? ` (Prise en cours… ${village.captureTimer || 0}/8)` : '';
+          if (objs.lbl?.active) objs.lbl.setText(`⚔ Village ennemi${lvlStr}${capStr}`);
         }
       }
     }
