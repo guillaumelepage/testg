@@ -344,15 +344,16 @@ export class BattleScene extends Phaser.Scene {
     // ── Phase 1 : attaque du joueur (lunge forward) ──────────────────────────
     this._animAttack(this.playerSprite, +52, () => {
       if (enemyWasHit) {
-        // Ennemi blessé : recul + barre HP
-        this._updateHpBar(this.enemyHpBar, this.enemyUnit);
-        this.tweens.add({ targets: this.enemySprite, x: `-=${28}`, duration: 80, yoyo: true, ease: 'Power2' });
+        // Recul + flash → barre HP mise à jour APRÈS le recul
+        this.tweens.add({
+          targets: this.enemySprite, x: `-=${28}`, duration: 80, yoyo: true, ease: 'Power2',
+          onComplete: () => this._updateHpBar(this.enemyHpBar, this.enemyUnit),
+        });
         this.tweens.add({ targets: this.enemySprite, alpha: 0.4, duration: 60, yoyo: true, repeat: 1 });
         this._phase2(playerWasHit, playerDied, 2000);
 
       } else if (enemyDied) {
-        // Ennemi vaincu : mort → nouveau adversaire entre
-        this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+        // Animation de mort d'abord — barre HP mise à jour pour le suivant après l'entrée
         this._animDie(this.enemySprite, () => {
           this._rebuildEnemyGhosts();
           this._resetSprite(this.enemySprite, this._enemySpriteX, this._enemySpriteY);
@@ -362,7 +363,7 @@ export class BattleScene extends Phaser.Scene {
         });
 
       } else {
-        this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+        // Pas de dégât visuel (résistance totale, etc.)
         this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
         this._phase2(playerWasHit, playerDied, 2000);
       }
@@ -373,16 +374,19 @@ export class BattleScene extends Phaser.Scene {
   _phase2(playerWasHit, playerDied, delay) {
     this.time.delayedCall(delay, () => {
       if (playerWasHit || playerDied) {
-        // Ennemi se précipite vers le joueur (lunge left)
+        // Ennemi se précipite vers le joueur
         this._animAttack(this.enemySprite, -52, () => {
-          this._updateHpBar(this.playerHpBar, this.playerUnit);
-
           if (playerWasHit) {
-            this.tweens.add({ targets: this.playerSprite, x: `+=${28}`, duration: 80, yoyo: true, ease: 'Power2' });
+            // Recul + flash → barre HP mise à jour APRÈS le recul
+            this.tweens.add({
+              targets: this.playerSprite, x: `+=${28}`, duration: 80, yoyo: true, ease: 'Power2',
+              onComplete: () => this._updateHpBar(this.playerHpBar, this.playerUnit),
+            });
             this.tweens.add({ targets: this.playerSprite, alpha: 0.3, duration: 60, yoyo: true, repeat: 1 });
             this._finishUpdate(380);
 
           } else if (playerDied) {
+            // Mort du joueur → barre HP mise à jour pour le suivant après l'entrée
             this._animDie(this.playerSprite, () => {
               this._resetSprite(this.playerSprite, this._playerSpriteX, this._playerSpriteY);
               this.playerSprite.setTexture(`battle_${this.playerUnit?.type}`);

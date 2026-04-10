@@ -298,36 +298,42 @@ export class MenuScene extends Phaser.Scene {
   }
 
   _buildClanGrid(gx, gy, gw, gh) {
-    const cols = 2, gapX = 4, gapY = 4;
+    const cols = 2, gapX = 6, gapY = 6;
     const bw   = Math.floor((gw - gapX) / cols);
     const rows  = Math.ceil(CLANS.length / cols);
-    const bh    = Math.max(36, Math.floor((gh - gapY * (rows - 1)) / rows));
+    const bh    = Math.max(60, Math.floor((gh - gapY * (rows - 1)) / rows));
 
     CLANS.forEach((clan, i) => {
       const col = i % cols, row = Math.floor(i / cols);
       const bx  = gx + col * (bw + gapX);
       const by  = gy + row * (bh + gapY);
+      const cx  = bx + bw / 2;
+      const cy  = by + bh / 2;
       const selected = i === 0;
 
-      const bg = this.add.rectangle(bx + bw / 2, by + bh / 2, bw, bh, clan.color, 0.88)
+      const bg = this.add.rectangle(cx, cy, bw, bh, clan.color, 0.88)
         .setInteractive({ useHandCursor: true })
         .setStrokeStyle(selected ? 2 : 1, selected ? 0xffd700 : 0x555535);
 
-      const iconFs = Math.min(16, Math.max(10, Math.floor(bh * 0.22)));
-      const lblFs  = Math.min(12, Math.max(7,  Math.floor(bh * 0.17)));
-      const bonFs  = Math.min(10, Math.max(6,  Math.floor(bh * 0.13)));
+      // Sizes scale with cell height, capped for legibility
+      const iconFs = Math.min(28, Math.max(18, Math.floor(bh * 0.38)));
+      const lblFs  = Math.min(11, Math.max(8,  Math.floor(bh * 0.14)));
+      const bonFs  = Math.min(9,  Math.max(7,  Math.floor(bh * 0.11)));
 
-      this.add.text(bx + 4, by + 4, clan.icon, { fontSize: `${iconFs}px` });
-      this.add.text(bx + 4 + iconFs + 2, by + 4, clan.label, {
+      // Name above icon
+      this.add.text(cx, cy - iconFs * 0.72, clan.label, {
         fontFamily: 'serif', fontSize: `${lblFs}px`, color: '#d4c090',
-        wordWrap: { width: bw - iconFs - 12 },
-      });
-      if (bh > 44) {
-        this.add.text(bx + 4, by + bh - bonFs - 4, clan.bonus, {
-          fontFamily: 'monospace', fontSize: `${bonFs}px`, color: '#a08050',
-          wordWrap: { width: bw - 8 },
-        });
-      }
+        wordWrap: { width: bw - 8 }, align: 'center',
+      }).setOrigin(0.5, 1);
+
+      // Big icon centered
+      this.add.text(cx, cy, clan.icon, { fontSize: `${iconFs}px` }).setOrigin(0.5, 0.5);
+
+      // Bonus below icon
+      this.add.text(cx, cy + iconFs * 0.68, clan.bonus, {
+        fontFamily: 'monospace', fontSize: `${bonFs}px`, color: '#a08050',
+        wordWrap: { width: bw - 8 }, align: 'center',
+      }).setOrigin(0.5, 0);
 
       bg.on('pointerover', () => { if (this.selectedClan.key !== clan.key) bg.setStrokeStyle(1, 0xc8960c, 0.8); });
       bg.on('pointerout',  () => { if (this.selectedClan.key !== clan.key) bg.setStrokeStyle(1, 0x555535); });
@@ -364,8 +370,8 @@ export class MenuScene extends Phaser.Scene {
   _buildCreateSection(px, py, pw, ph, W, H) {
     this._drawPanel(px, py, pw, ph, 'CRÉER UNE PARTIE');
 
-    this.add.text(px + 12, py + 36, 'Lancez une partie coopérative. Partagez le code avec votre allié.', {
-      fontFamily: 'sans-serif', fontSize: '12px', color: '#777755',
+    this.add.text(px + 12, py + 36, 'Partie coopérative — partagez le code avec votre allié.', {
+      fontFamily: 'sans-serif', fontSize: '11px', color: '#777755',
       wordWrap: { width: pw - 24 },
     });
 
@@ -377,18 +383,19 @@ export class MenuScene extends Phaser.Scene {
       { key: 'difficile',label: 'Difficile', color: 0x6a3a10, sel: 0xcc7722 },
       { key: 'brutal',   label: 'Brutal',    color: 0x4a1010, sel: 0xcc2222 },
     ];
-    const diffY = py + 78;
+    const diffY  = py + 62;
+    const diffBtnH = 26;
     this.add.text(px + 12, diffY, 'Difficulté', { fontFamily: 'sans-serif', fontSize: '11px', color: '#c8a060' });
     const diffBtnW = Math.floor((pw - 24 - 9) / 4);
     this._diffBtns = [];
     DIFFS.forEach((d, i) => {
       const bx = px + 12 + i * (diffBtnW + 3) + diffBtnW / 2;
-      const by = diffY + 18;
+      const by = diffY + 14 + diffBtnH / 2; // button centre Y
       const isDefault = d.key === 'normal';
-      const bg = this.add.rectangle(bx, by + 11, diffBtnW, 22, isDefault ? d.sel : d.color, 0.9)
+      const bg = this.add.rectangle(bx, by, diffBtnW, diffBtnH, isDefault ? d.sel : d.color, 0.9)
         .setStrokeStyle(isDefault ? 2 : 1, isDefault ? 0xffd700 : 0x444422)
         .setInteractive({ useHandCursor: true });
-      this.add.text(bx, by + 11, d.label, {
+      this.add.text(bx, by, d.label, {
         fontFamily: 'sans-serif', fontSize: '10px', color: '#d4c090',
       }).setOrigin(0.5);
       bg.on('pointerdown', () => {
@@ -401,7 +408,8 @@ export class MenuScene extends Phaser.Scene {
       this._diffBtns.push({ btn: bg, def: d });
     });
 
-    const btnY = diffY + 50;
+    // Create button sits below difficulty buttons with explicit 14 px gap
+    const btnY = diffY + 14 + diffBtnH + 14 + 18; // label + btnH + gap + half btn height
     this.createBtn = this._makeButton(px + pw / 2, btnY, pw - 40, 36,
       '⚔  Créer la salle  ⚔', 0x3a5080, () => {
         const name = this.nameInput.state.value.trim() || 'Joueur 1';

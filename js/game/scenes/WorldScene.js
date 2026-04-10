@@ -47,6 +47,7 @@ export class WorldScene extends Phaser.Scene {
     this.villageObjects = new Map();
     this.dungeonObjects = new Map();
     this.sdfObjects = new Map();
+    this.childObjects = new Map();
     this.visitedTiles = new Set(); // fog of war memory
     this.mySocketId = socketManager.socket?.id;
     // Store own player info for reconnection (socket ID may change on reconnect)
@@ -153,6 +154,10 @@ export class WorldScene extends Phaser.Scene {
     for (const unit    of this.shared.units)          this._spawnUnit(unit);
     for (const npc     of (this.shared.npcs || []))   this._spawnNpc(npc);
     for (const village of (this.shared.villages || [])) this._spawnVillage(village);
+    for (const cit     of (this.shared.population || []).filter(c => c.isChild)) {
+      const house = this.shared.buildings.find(b => b.id === cit.birthHouseId);
+      if (house) this._spawnChild(cit, house);
+    }
 
     // ── Input ─────────────────────────────────────────────────────────────────
     this.input.on('pointerdown', this._onPointerDown, this);
@@ -527,6 +532,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   _selectBuilding(building) {
+    if (building.owner === 'neutral' || building.owner === 'enemy') return;
     this._deselectAll();
     this.selectedBuilding = building;
     const pop = this.shared.population || [];
@@ -885,6 +891,59 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  // ─── Children wandering around houses ────────────────────────────────────
+
+  _spawnChild(cit, house) {
+    const hCX = (house.x + 1) * TILE_SIZE; // centre de la maison 2×2
+    const hCY = (house.y + 1) * TILE_SIZE;
+    // Small circle body + emoji above
+    const body  = this.add.circle(0, 0, 5, 0xffccaa).setStrokeStyle(1, 0xb88858);
+    const icon  = this.add.text(0, -13, '👶', { fontSize: '9px' }).setOrigin(0.5);
+    const cnt   = this.add.container(hCX, hCY, [body, icon]).setDepth(4.5);
+    this.childObjects.set(cit.id, { cnt, hCX, hCY });
+    this._startChildWander(cnt, hCX, hCY);
+  }
+
+  _startChildWander(cnt, hCX, hCY) {
+    if (!cnt.active) return;
+    const R  = TILE_SIZE * 1.6;
+    const tx = hCX + (Math.random() - 0.5) * R * 2;
+    const ty = hCY + (Math.random() - 0.5) * R * 2;
+    this.tweens.add({
+      targets: cnt,
+      x: tx, y: ty,
+      duration: 1600 + Math.random() * 1200,
+      ease: 'Sine.easeInOut',
+      onComplete: () => {
+        if (!cnt.active) return;
+        // Short pause then walk again
+        this.time.delayedCall(400 + Math.random() * 800, () => {
+          this._startChildWander(cnt, hCX, hCY);
+        });
+      },
+    });
+  }
+
+  _syncChildren(shared) {
+    const children = (shared.population || []).filter(c => c.isChild);
+    const seenIds  = new Set(children.map(c => c.id));
+
+    // Remove children who grew up or whose house was destroyed
+    for (const [id, objs] of this.childObjects) {
+      if (!seenIds.has(id)) {
+        objs.cnt.destroy();
+        this.childObjects.delete(id);
+      }
+    }
+
+    // Spawn newly born children
+    for (const cit of children) {
+      if (this.childObjects.has(cit.id)) continue;
+      const house = shared.buildings.find(b => b.id === cit.birthHouseId);
+      if (house) this._spawnChild(cit, house);
+    }
+  }
+
   _syncDungeons() {
     for (const dungeon of (this.shared.dungeons || [])) {
       if (!this.dungeonObjects.has(dungeon.id)) {
@@ -1164,6 +1223,9 @@ export class WorldScene extends Phaser.Scene {
 
     // Sync SDF adults on map
     this._syncSdfCitizens(shared.population || []);
+
+    // Sync children wandering around their house
+    this._syncChildren(shared);
 
     // Update dungeons
     this._syncDungeons();

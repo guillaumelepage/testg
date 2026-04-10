@@ -616,12 +616,18 @@ class GameRoom {
   }
 
   // Move one tile toward (tx,ty), avoiding water/mountain; returns true when arrived
+  // Exception: the destination tile itself may be mountain if it holds a resource node.
   _stepToward(unit, tx, ty) {
     if (unit.x === tx && unit.y === ty) return true;
     const dx = tx - unit.x, dy = ty - unit.y;
+    const isResourceTile = (nx, ny) =>
+      nx === tx && ny === ty &&
+      this.shared.resourceNodes.some(r => r.x === nx && r.y === ny && r.amount > 0);
     const tryStep = (nx, ny) => {
       if (nx < 0 || nx >= MAP_WIDTH || ny < 0 || ny >= MAP_HEIGHT) return false;
-      if (this.map[ny][nx] === T.WATER || this.map[ny][nx] === T.MOUNTAIN) return false;
+      const tile = this.map[ny][nx];
+      if (tile === T.WATER) return false;
+      if (tile === T.MOUNTAIN && !isResourceTile(nx, ny)) return false;
       if (this.shared.buildings.find(b => b.type === 'wall' && b.x === nx && b.y === ny && !b.underConstruction)) return false;
       unit.x = nx; unit.y = ny; return true;
     };
@@ -670,7 +676,7 @@ class GameRoom {
     };
     const types = ACCEPTS[resourceType] || ['town_hall'];
     const depots = this.shared.buildings.filter(
-      b => types.includes(b.type) && !b.underConstruction && b.owner !== 'enemy',
+      b => types.includes(b.type) && !b.underConstruction && b.owner === 'shared',
     );
     if (!depots.length) return null;
     return depots.reduce((best, b) => {
@@ -810,7 +816,7 @@ class GameRoom {
       }
       case 'fire': {
         // Random player building loses 30% HP
-        const blds = this.shared.buildings.filter(b => b.owner !== 'enemy' && !b.underConstruction && b.type !== 'wall');
+        const blds = this.shared.buildings.filter(b => b.owner === 'shared' && !b.underConstruction && b.type !== 'wall');
         if (blds.length) {
           const target = blds[Math.floor(Math.random() * blds.length)];
           target.hp = Math.max(1, Math.round(target.hp * 0.7));
@@ -1511,7 +1517,7 @@ class GameRoom {
     let changed = false;
     const enemies       = this.shared.units.filter(u => u.owner === 'enemy');
     const playerUnits   = this.shared.units.filter(u => u.owner !== 'enemy' && u.owner !== 'neutral');
-    const playerBldgs   = this.shared.buildings.filter(b => b.owner !== 'enemy');
+    const playerBldgs   = this.shared.buildings.filter(b => b.owner === 'shared');
 
     // ── Aggro detection ────────────────────────────────────────────────────────
     let aggroGain = 0;
