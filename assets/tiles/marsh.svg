@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+  <defs>
+    <filter id="nmrs" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="4" seed="41" result="t"/>
+      <feColorMatrix type="saturate" values="0" in="t" result="g"/>
+      <feBlend in="SourceGraphic" in2="g" mode="multiply"/>
+    </filter>
+  </defs>
+  <!-- Muddy ground -->
+  <rect width="48" height="48" fill="#3d5c28"/>
+  <!-- Dark muddy water patches -->
+  <ellipse cx="10" cy="14" rx="8" ry="5" fill="#1e3010" opacity="0.75"/>
+  <ellipse cx="36" cy="32" rx="9" ry="5" fill="#1e3010" opacity="0.70"/>
+  <ellipse cx="22" cy="40" rx="7" ry="4" fill="#1e3010" opacity="0.65"/>
+  <!-- Murky water reflection -->
+  <ellipse cx="10" cy="14" rx="6" ry="3" fill="#2a4848" opacity="0.55"/>
+  <ellipse cx="36" cy="32" rx="7" ry="3" fill="#2a4848" opacity="0.50"/>
+  <!-- Tall grass tufts -->
+  <line x1="6"  y1="32" x2="4"  y2="22" stroke="#4a7030" stroke-width="1.5" opacity="0.9"/>
+  <line x1="8"  y1="32" x2="10" y2="21" stroke="#5a8038" stroke-width="1.5" opacity="0.9"/>
+  <line x1="28" y1="8"  x2="26" y2="0"  stroke="#4a7030" stroke-width="1.5" opacity="0.9"/>
+  <line x1="30" y1="8"  x2="32" y2="0"  stroke="#5a8038" stroke-width="1.5" opacity="0.9"/>
+  <line x1="42" y1="14" x2="40" y2="4"  stroke="#4a7030" stroke-width="1.5" opacity="0.8"/>
+  <line x1="44" y1="14" x2="46" y2="5"  stroke="#5a8038" stroke-width="1.5" opacity="0.8"/>
+  <line x1="18" y1="26" x2="16" y2="17" stroke="#4a7030" stroke-width="1.2" opacity="0.8"/>
+  <line x1="20" y1="26" x2="22" y2="17" stroke="#5a8038" stroke-width="1.2" opacity="0.8"/>
+  <!-- Noise -->
+  <rect width="48" height="48" filter="url(#nmrs)" opacity="0.45"/>
+</svg>

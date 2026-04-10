@@ -313,7 +313,7 @@ export class UIScene extends Phaser.Scene {
 
   // ─── Building info panel ───────────────────────────────────────────────────
 
-  showBuildingPanel(building, onTrain, popInfo = null) {
+  showBuildingPanel(building, onTrain, popInfo = null, onDemolish = null) {
     this.hidePanel();
     const data = BUILDING_DATA[building.type] || {};
     const { width: W, height: H } = this.cameras.main;
@@ -322,7 +322,9 @@ export class UIScene extends Phaser.Scene {
     const produces = data.produces || [];
     const rowH = 48;
     const extraH = isHouse ? 52 : 0;
-    const dynPanelH = (produces.length ? 90 + produces.length * rowH + 8 : 120) + extraH;
+    const canDemolish = typeof onDemolish === 'function' && building.type !== 'town_hall';
+    const demolishH = canDemolish ? 36 : 0;
+    const dynPanelH = (produces.length ? 90 + produces.length * rowH + 8 : 120) + extraH + demolishH;
     const py = H - dynPanelH - 10;
 
     const items = [];
@@ -393,6 +395,21 @@ export class UIScene extends Phaser.Scene {
           fontFamily: 'monospace', fontSize: '9px', color: '#666644',
         }));
       });
+    }
+
+    // ── Demolish button ───────────────────────────────────────────────────────
+    if (canDemolish) {
+      const demolishY = py + dynPanelH - demolishH + 4;
+      const demolBg = this.add.rectangle(px + PANEL_W / 2, demolishY + 14, PANEL_W - 20, 26, 0x220000, 0.9)
+        .setStrokeStyle(1, 0x884422, 0.8)
+        .setInteractive({ useHandCursor: true });
+      demolBg.on('pointerover', () => demolBg.setStrokeStyle(2, 0xff4422));
+      demolBg.on('pointerout', () => demolBg.setStrokeStyle(1, 0x884422, 0.8));
+      demolBg.on('pointerdown', () => { onDemolish(building.id); this.hidePanel(); });
+      items.push(demolBg);
+      items.push(this.add.text(px + PANEL_W / 2, demolishY + 14, 'Démolir  (récup. 50%)', {
+        fontFamily: 'sans-serif', fontSize: '11px', color: '#cc6644',
+      }).setOrigin(0.5, 0.5));
     }
 
     this.panel = { items };
@@ -502,18 +519,18 @@ export class UIScene extends Phaser.Scene {
   _createMinimap(W, H) {
     const mmW = 120, mmH = 90;
     const mmX = W - mmW - 10, mmY = 56;
-    const scaleX = mmW / 80, scaleY = mmH / 60;
+    const scaleX = mmW / 160, scaleY = mmH / 120;
 
     // Clickable background — moves WorldScene camera on click
     const mmBg = this.add.rectangle(mmX + mmW / 2, mmY + mmH / 2, mmW + 4, mmH + 4, 0x1a0f05)
       .setStrokeStyle(1, 0xc8960c, 0.6)
       .setInteractive({ useHandCursor: true });
     mmBg.on('pointerdown', (ptr) => {
-      // Convert minimap pixel to world pixel (TILE_SIZE = 48, map = 80×60 tiles)
+      // Convert minimap pixel to world pixel (TILE_SIZE = 24, map = 160×120 tiles)
       const dx = Phaser.Math.Clamp(ptr.x - mmX, 0, mmW);
       const dy = Phaser.Math.Clamp(ptr.y - mmY, 0, mmH);
-      const worldX = (dx / mmW) * 80 * 48;
-      const worldY = (dy / mmH) * 60 * 48;
+      const worldX = (dx / mmW) * 160 * 24;
+      const worldY = (dy / mmH) * 120 * 24;
       this.scene.get('World')?.cameras.main.centerOn(worldX, worldY);
     });
 

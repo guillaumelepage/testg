@@ -179,6 +179,19 @@ export const UNIT_STATS = {
     ],
   },
 
+  // ── Unité ennemie spéciale ────────────────────────────────────────────────
+  banniere_rouge: {
+    label: 'Bannière Rouge', faction: 'L\'Ennemi',
+    maxHp: 70, atk: 20, def: 12, spd: 18,
+    color: 0xaa1111, accentColor: 0xff4444,
+    moves: [
+      { name: 'Coup de Hampe',    moveType: 'LOURD',     power: 22, desc: 'Frappe avec le manche de la bannière.' },
+      { name: 'Charge de Guerre', moveType: 'CAVALERIE', power: 28, desc: 'Fonce vers l\'ennemi.' },
+      { name: 'Ralliement',       moveType: 'LOURD',     power: 15, desc: 'Galvanise les troupes.' },
+      { name: 'Frappe Rapide',    moveType: 'LEGER',     power: 18, desc: 'Attaque soudaine.' },
+    ],
+  },
+
   // ── Mobs neutres ───────────────────────────────────────────────────────────
   loup: {
     label: 'Loup Sauvage', faction: 'Faune',
@@ -216,37 +229,10 @@ export const UNIT_STATS = {
 };
 
 // Type effectiveness chart (attacker type -> defender type -> multiplier)
-export const TYPE_CHART = {
-  LOURD: { LOURD: 1.0, LEGER: 1.5, CAVALERIE: 0.5, MAGIE: 0.5 },
-  LEGER: { LOURD: 0.7, LEGER: 1.0, CAVALERIE: 1.0, MAGIE: 1.2 },
-  CAVALERIE: { LOURD: 1.5, LEGER: 1.0, CAVALERIE: 1.0, MAGIE: 0.7 },
-  MAGIE: { LOURD: 1.5, LEGER: 0.8, CAVALERIE: 1.2, MAGIE: 1.0 },
-};
-
-export const UNIT_MOVE_TYPE = {
-  // Unités de combat
-  chevalier: 'CAVALERIE',
-  garde_roi: 'LOURD',
-  homme_armes: 'LOURD',
-  archer: 'LEGER',
-  croise: 'LOURD',
-  mercenaire: 'LEGER',
-  compagnie_loup: 'LEGER',
-  frere_epee: 'LOURD',
-  paysan: 'LEGER',
-  tyran: 'LOURD',
-  // Héros
-  roi_guerrier: 'LOURD',
-  chasseresse: 'LEGER',
-  mage_arcane: 'MAGIE',
-  paladin: 'LOURD',
-  assassin: 'LEGER',
-  necromancien: 'MAGIE',
-  // Mobs neutres
-  loup: 'LEGER',
-  sanglier: 'CAVALERIE',
-  ours: 'LOURD',
-};
+// Shared with server — single source of truth in shared/gameData.js
+const _gd = require('../../../shared/gameData');
+export const TYPE_CHART    = _gd.TYPE_CHART;
+export const UNIT_MOVE_TYPE = _gd.UNIT_MOVE_TYPE;
 
 // Units available to train per building type
 export const BARRACKS_UNITS = ['homme_armes', 'archer', 'frere_epee'];

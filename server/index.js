@@ -5,21 +5,54 @@ const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const compression = require('compression');
 const { GameRoom } = require('./GameRoom');
 
 const PORT = process.env.PORT || 3000;
+const DIST = path.join(__dirname, '../dist');
 
 const app = express();
+
+// Gzip all responses (significant win for SVGs and JS)
+app.use(compression());
 app.use(cors());
 
-// Sert les fichiers du build webpack
-app.use(express.static(path.join(__dirname, '../dist')));
+// ── Static assets with tiered caching ──────────────────────────────────────
+
+// JS bundle: content-hashed filename → safe to cache forever
+app.use('/js', express.static(path.join(DIST, 'js'), {
+  maxAge: '1y',
+  immutable: true,
+  etag: false,       // unnecessary when immutable
+  lastModified: false,
+}));
+
+// Game assets (SVG, PNG…): no hash in filename → 1-week cache + ETag revalidation
+// Browser serves from cache for 7 days; on expiry, a conditional GET (304) skips the download
+app.use('/assets', express.static(path.join(DIST, 'assets'), {
+  maxAge: '7d',
+  etag: true,
+  lastModified: true,
+}));
+
+// index.html and everything else: always revalidate (no-cache)
+app.use(express.static(DIST, {
+  maxAge: 0,
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) {
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  },
+}));
 
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
 
-// Route d'accueil
+// Route d'accueil — HTML served with no-cache so page refresh picks up new JS hash
 app.get('/', (_, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.sendFile(path.join(DIST, 'index.html'));
 });
 
 const httpServer = createServer(app);
@@ -50,20 +83,56 @@ setInterval(() => {
     const mobChanged     = room.tickNeutralMobs();
     const villageChanged = room.tickVillageTowers() | room.tickVillageSiege();
     const eventChanged   = room.tickRandomEvents();
+    room.tickBattleGuard(); // safety: resolve orphaned battles
 
     // Flush pending events (arrow shots, captures…)
     for (const ev of room._pendingEvents.splice(0)) {
       io.to(code).emit(ev.type, ev);
     }
 
-    if (moveChanged || gatherChanged || buildChanged || regenChanged || aiChanged || mobChanged || villageChanged || eventChanged || timedChanged || popChanged) {
-      io.to(code).emit('state_update', { shared: room.shared });
+    // Delta state: only send what actually changed each tick
+    const delta = {};
+    if (moveChanged || mobChanged || aiChanged || timedChanged || popChanged || eventChanged || villageChanged)
+      delta.units = room.shared.units;
+    if (buildChanged || aiChanged || eventChanged || villageChanged)
+      delta.buildings = room.shared.buildings;
+    if (gatherChanged || eventChanged)
+      delta.resources = room.shared.resources;
+    if (gatherChanged || regenChanged || eventChanged)
+      delta.resourceNodes = room.shared.resourceNodes;
+    if (buildChanged || popChanged)
+      delta.population = room.shared.population;
+    if (villageChanged || aiChanged)
+      delta.villages = room.shared.villages;
+    if (eventChanged)
+      delta.npcs = room.shared.npcs;
+    if (timedChanged || eventChanged) {
+      delta.nightOfBlood = room.shared.nightOfBlood;
+      delta.truce        = room.shared.truce;
+    }
+    if (Object.keys(delta).length > 0) {
+      io.to(code).emit('state_update', { shared: delta });
     }
   }
 }, 1000);
 
+// ── Per-socket action rate limiter (max 20 actions/s) ──────────────────────
+const ACTION_LIMIT = 20;
+const ACTION_WINDOW_MS = 1000;
+
+function makeRateLimiter() {
+  let count = 0;
+  let windowStart = Date.now();
+  return () => {
+    const now = Date.now();
+    if (now - windowStart > ACTION_WINDOW_MS) { count = 0; windowStart = now; }
+    return ++count <= ACTION_LIMIT;
+  };
+}
+
 io.on('connection', (socket) => {
   console.log(`[+] ${socket.id} connected`);
+  const withinLimit = makeRateLimiter();
 
   socket.on('list_rooms', (cb) => {
     const available = [];
@@ -151,6 +220,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('action', (action) => {
+    if (!withinLimit()) return; // rate-limit exceeded — silently drop
     const code = socket.data.roomCode;
     const room = rooms.get(code);
     if (!room) return;

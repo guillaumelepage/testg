@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48">
+  <defs>
+    <filter id="npth" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="61" result="t"/>
+      <feColorMatrix type="saturate" values="0" in="t" result="g"/>
+      <feBlend in="SourceGraphic" in2="g" mode="multiply"/>
+    </filter>
+  </defs>
+  <!-- Base packed earth -->
+  <rect width="48" height="48" fill="#c4a06c"/>
+  <!-- Worn center (cross shape for any direction) -->
+  <rect x="12" y="0"  width="24" height="48" fill="#d4b080" opacity="0.5"/>
+  <rect x="0"  y="12" width="48" height="24" fill="#d4b080" opacity="0.4"/>
+  <!-- Darker rut areas at edges -->
+  <rect x="0"  y="6"  width="8" height="36" fill="#8a6838" opacity="0.38"/>
+  <rect x="40" y="6"  width="8" height="36" fill="#8a6838" opacity="0.38"/>
+  <rect x="6"  y="0"  width="36" height="8" fill="#8a6838" opacity="0.38"/>
+  <rect x="6"  y="40" width="36" height="8" fill="#8a6838" opacity="0.38"/>
+  <!-- Corner pebble clusters -->
+  <circle cx="8"  cy="8"  r="2.5" fill="#7a5830" opacity="0.7"/>
+  <circle cx="40" cy="8"  r="2.5" fill="#7a5830" opacity="0.7"/>
+  <circle cx="8"  cy="40" r="2.5" fill="#7a5830" opacity="0.7"/>
+  <circle cx="40" cy="40" r="2.5" fill="#7a5830" opacity="0.7"/>
+  <!-- Central gravel -->
+  <circle cx="18" cy="18" r="1.5" fill="#9a7848" opacity="0.65"/>
+  <circle cx="30" cy="30" r="1.5" fill="#9a7848" opacity="0.65"/>
+  <circle cx="30" cy="16" r="1.5" fill="#9a7848" opacity="0.65"/>
+  <circle cx="18" cy="32" r="1.5" fill="#9a7848" opacity="0.65"/>
+  <circle cx="24" cy="24" r="2"   fill="#b08848" opacity="0.45"/>
+  <!-- Noise -->
+  <rect width="48" height="48" filter="url(#npth)" opacity="0.38"/>
+</svg>

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-const T = 48;
+const T = 24;
 
 const C = {
   GRASS: 0x5a9e42, GRASS_MID: 0x4a8c35, GRASS_DARK: 0x3a7028,
@@ -32,13 +32,19 @@ export class BootScene extends Phaser.Scene {
     this.add.text(w / 2, h * 0.55, 'Chargement...', { fontFamily: 'sans-serif', fontSize: '14px', color: '#aaaaaa' }).setOrigin(0.5);
 
     // Tile SVGs (feTurbulence noise)
-    this.load.image('tile_grass',      'assets/tiles/grass.svg');
-    this.load.image('tile_dark_grass', 'assets/tiles/dark_grass.svg');
-    this.load.image('tile_water',      'assets/tiles/water.svg');
-    this.load.image('tile_sand',       'assets/tiles/sand.svg');
-    this.load.image('tile_forest',     'assets/tiles/forest.svg');
-    this.load.image('tile_mountain',   'assets/tiles/mountain.svg');
-    this.load.image('tile_dirt',       'assets/tiles/dirt.svg');
+    this.load.image('tile_grass',         'assets/tiles/grass.svg');
+    this.load.image('tile_dark_grass',    'assets/tiles/dark_grass.svg');
+    this.load.image('tile_water',         'assets/tiles/water.svg');
+    this.load.image('tile_sand',          'assets/tiles/sand.svg');
+    this.load.image('tile_forest',        'assets/tiles/forest.svg');
+    this.load.image('tile_mountain',      'assets/tiles/mountain.svg');
+    this.load.image('tile_dirt',          'assets/tiles/dirt.svg');
+    this.load.image('tile_marsh',         'assets/tiles/marsh.svg');
+    this.load.image('tile_path',          'assets/tiles/path.svg');
+    this.load.image('tile_shallow_water', 'assets/tiles/shallow_water.svg');
+    this.load.image('tile_snow',          'assets/tiles/snow.svg');
+    this.load.image('tile_ruins',         'assets/tiles/ruins.svg');
+    this.load.image('tile_farmland',      'assets/tiles/farmland.svg');
     // Resource SVGs
     this.load.image('res_tree',         'assets/resources/tree.svg');
     this.load.image('res_tree_stump',   'assets/resources/tree_stump.svg');
@@ -89,7 +95,162 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     this._createUnitTextures();
+    this._createTileVariants();
     this.scene.start('Menu');
+  }
+
+  /**
+   * Generate 4 visual variants for each tile type.
+   * Variants are the base SVG + tiny seeded-random marks (dots, specks, thin lines).
+   * Details are small (1-3 px) and low-alpha so the variation reads as texture,
+   * not as obvious geometric patches.
+   */
+  _createTileVariants() {
+    // Seeded LCG — deterministic per variant index so tiles always look the same
+    const lcg = (seed) => {
+      let s = seed | 0;
+      return () => { s = Math.imul(s, 1664525) + 1013904223; return (s >>> 0) / 0xFFFFFFFF; };
+    };
+
+    // Draw `count` tiny filled circles at random positions within the 48×48 tile
+    const scatter = (g, color, alpha, count, rMin, rMax, seed, margin = 3) => {
+      const rand = lcg(seed);
+      g.fillStyle(color, alpha);
+      for (let i = 0; i < count; i++) {
+        const x = margin + rand() * (T - margin * 2);
+        const y = margin + rand() * (T - margin * 2);
+        const r = rMin + rand() * (rMax - rMin);
+        g.fillCircle(x, y, r);
+      }
+    };
+
+    // Draw horizontal ripple lines (water waves)
+    const ripples = (g, color, alpha, count, seed) => {
+      const rand = lcg(seed);
+      g.fillStyle(color, alpha);
+      for (let i = 0; i < count; i++) {
+        const y  = 2 + rand() * 20;
+        const x0 = 1 + rand() * 8;
+        const w  = 5 + rand() * 10;
+        g.fillRect(x0, y, w, 1);
+      }
+    };
+
+    // Per-tile-type: four overlay descriptions (null = plain base, no marks)
+    // Each non-null entry: array of draw calls applied in order
+    const SPECS = {
+      tile_grass: [
+        null,
+        (g) => scatter(g, 0x2a5e1a, 0.18, 7,  1.0, 2.0, 11),
+        (g) => scatter(g, 0x2a5e1a, 0.14, 12, 0.8, 1.5, 22),
+        (g) => { scatter(g, 0x2a5e1a, 0.16, 5, 1.2, 2.2, 33);
+                 scatter(g, 0x8ecf5a, 0.12, 4, 1.0, 1.8, 44); },
+      ],
+      tile_dark_grass: [
+        null,
+        (g) => scatter(g, 0x1a3e0e, 0.22, 7,  1.0, 2.0, 55),
+        (g) => scatter(g, 0x1a3e0e, 0.18, 11, 0.8, 1.4, 66),
+        (g) => { scatter(g, 0x1a3e0e, 0.20, 5, 1.2, 2.0, 77);
+                 scatter(g, 0x5a9e42, 0.10, 4, 0.8, 1.5, 88); },
+      ],
+      tile_water: [
+        null,
+        (g) => ripples(g, 0x7ab8e8, 0.22, 5, 111),
+        (g) => ripples(g, 0x7ab8e8, 0.18, 8, 222),
+        (g) => { ripples(g, 0x7ab8e8, 0.16, 4, 333);
+                 ripples(g, 0xbcddee, 0.12, 3, 444); },
+      ],
+      tile_sand: [
+        null,
+        (g) => scatter(g, 0x9a7a28, 0.18, 9,  0.8, 1.8, 131),
+        (g) => scatter(g, 0x9a7a28, 0.14, 14, 0.6, 1.2, 142),
+        (g) => { scatter(g, 0x9a7a28, 0.16, 6, 1.0, 2.0, 153);
+                 scatter(g, 0xe8d08a, 0.12, 5, 0.8, 1.4, 164); },
+      ],
+      tile_dirt: [
+        null,
+        (g) => scatter(g, 0x5a3820, 0.20, 8,  1.0, 2.2, 211),
+        (g) => scatter(g, 0x5a3820, 0.16, 13, 0.7, 1.4, 222),
+        (g) => { scatter(g, 0x5a3820, 0.18, 6, 1.2, 2.4, 233);
+                 scatter(g, 0xb08860, 0.12, 4, 0.8, 1.6, 244); },
+      ],
+      tile_forest: [
+        null,
+        (g) => scatter(g, 0x0e280a, 0.28, 6,  1.2, 2.4, 311),
+        (g) => scatter(g, 0x0e280a, 0.22, 10, 0.8, 1.6, 322),
+        (g) => { scatter(g, 0x0e280a, 0.25, 5, 1.4, 2.6, 333);
+                 scatter(g, 0x42802c, 0.14, 4, 1.0, 2.0, 344); },
+      ],
+      tile_mountain: [
+        null,
+        (g) => scatter(g, 0x3e3430, 0.22, 7,  1.0, 2.2, 411),
+        (g) => scatter(g, 0x3e3430, 0.18, 11, 0.7, 1.5, 422),
+        (g) => { scatter(g, 0x3e3430, 0.20, 5, 1.2, 2.4, 433);
+                 scatter(g, 0xd8d0c8, 0.14, 4, 0.8, 1.6, 444); },
+      ],
+      tile_marsh: [
+        null,
+        (g) => scatter(g, 0x1a2c0a, 0.25, 6,  1.0, 2.0, 511),
+        (g) => scatter(g, 0x2a4818, 0.20, 10, 0.7, 1.4, 522),
+        (g) => { scatter(g, 0x1a2c0a, 0.22, 5, 1.2, 2.2, 533);
+                 scatter(g, 0x3a6028, 0.14, 4, 0.8, 1.5, 544); },
+      ],
+      tile_path: [
+        null,
+        (g) => scatter(g, 0x6a4820, 0.20, 8,  0.8, 1.8, 611),
+        (g) => scatter(g, 0x6a4820, 0.16, 12, 0.6, 1.2, 622),
+        (g) => { scatter(g, 0x6a4820, 0.18, 5, 1.0, 2.0, 633);
+                 scatter(g, 0xd0b080, 0.12, 4, 0.8, 1.5, 644); },
+      ],
+      tile_shallow_water: [
+        null,
+        (g) => ripples(g, 0xb0d8ee, 0.28, 4, 711),
+        (g) => ripples(g, 0xb0d8ee, 0.22, 6, 722),
+        (g) => { ripples(g, 0xb0d8ee, 0.20, 3, 733);
+                 ripples(g, 0xd8e8c8, 0.14, 3, 744); },
+      ],
+      tile_snow: [
+        null,
+        (g) => scatter(g, 0x8898b0, 0.18, 7,  0.8, 1.8, 811),
+        (g) => scatter(g, 0x8898b0, 0.14, 11, 0.6, 1.2, 822),
+        (g) => { scatter(g, 0x8898b0, 0.16, 5, 1.0, 2.0, 833);
+                 scatter(g, 0xffffff, 0.18, 4, 0.8, 1.5, 844); },
+      ],
+      tile_ruins: [
+        null,
+        (g) => scatter(g, 0x383028, 0.25, 6,  1.0, 2.2, 911),
+        (g) => scatter(g, 0x383028, 0.20, 10, 0.7, 1.5, 922),
+        (g) => { scatter(g, 0x383028, 0.22, 5, 1.2, 2.4, 933);
+                 scatter(g, 0x5a8030, 0.14, 4, 0.8, 1.6, 944); },
+      ],
+      tile_farmland: [
+        null,
+        (g) => scatter(g, 0x4a2a10, 0.20, 5,  0.8, 1.6, 1011),
+        (g) => scatter(g, 0x4a2a10, 0.16, 8,  0.6, 1.2, 1022),
+        (g) => { scatter(g, 0x4a2a10, 0.18, 4, 1.0, 1.8, 1033);
+                 scatter(g, 0x78c840, 0.14, 4, 0.6, 1.2, 1044); },
+      ],
+    };
+
+    for (const [baseKey, variants] of Object.entries(SPECS)) {
+      for (let v = 0; v < variants.length; v++) {
+        const rt = this.add.renderTexture(0, 0, T, T);
+        // SVG source files are 48×48; scale down to T×T
+        const img = this.make.image({ key: baseKey, add: false });
+        img.setDisplaySize(T, T).setOrigin(0, 0);
+        rt.draw(img, 0, 0);
+        img.destroy();
+        const fn = variants[v];
+        if (fn) {
+          const g = this.add.graphics();
+          fn(g);
+          rt.draw(g, 0, 0);
+          g.destroy();
+        }
+        rt.saveTexture(`${baseKey}_${v}`);
+        rt.destroy();
+      }
+    }
   }
 
 

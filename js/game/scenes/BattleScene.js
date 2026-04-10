@@ -10,6 +10,8 @@ export class BattleScene extends Phaser.Scene {
     this.battle      = data.battle;
     this.worldScene  = data.worldScene;
     this.actionLocked = false;
+    this._animating   = false;   // true while a battle_update animation sequence is running
+    this._pendingBattleEnd = null; // deferred battle_end data
     this._refreshFromBattle(data.battle);
   }
 
@@ -55,9 +57,9 @@ export class BattleScene extends Phaser.Scene {
     // ── Team rosters (small icons) ────────────────────────────────────────────
     this._buildRosters(W, H);
 
-    // ── Type badges ───────────────────────────────────────────────────────────
+    // ── Type badges — enemy badge stored so it can be updated on unit swap ──
     this._typeBadge(W * 0.28, H * 0.76, UNIT_MOVE_TYPE[this.playerUnit?.type] || '?', 0x3366aa);
-    this._typeBadge(W * 0.72, H * 0.26, UNIT_MOVE_TYPE[this.enemyUnit?.type]  || '?', 0xaa3322);
+    this.enemyTypeBadgeTxt = this._typeBadge(W * 0.72, H * 0.26, UNIT_MOVE_TYPE[this.enemyUnit?.type] || '?', 0xaa3322);
 
     // ── Message log ───────────────────────────────────────────────────────────
     const logY = H * 0.86;
@@ -150,10 +152,11 @@ export class BattleScene extends Phaser.Scene {
     const stats  = UNIT_STATS[unit.type] || {};
     const barW   = 220, barH = 14;
     const pct    = unit.hp / unit.maxHp;
-    const label  = isPlayer ? stats.label || unit.type : stats.label || unit.type;
+    const label  = stats.label || unit.type;
     const color  = isPlayer ? '#88ccff' : '#ff9988';
 
-    this.add.text(x - barW / 2, y - 24, label, {
+    // Store labelTxt so we can update it when the unit changes (e.g., next enemy)
+    const labelTxt = this.add.text(x - barW / 2, y - 24, label, {
       fontFamily: 'Georgia, serif', fontSize: '14px', color,
     }).setDepth(6);
     this.add.text(x + barW / 2, y - 24, `HP`, {
@@ -167,7 +170,7 @@ export class BattleScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '11px', color: '#ffffff',
     }).setOrigin(0.5).setDepth(8);
 
-    return { fill, txt, maxHp: unit.maxHp, barW };
+    return { fill, txt, labelTxt, maxHp: unit.maxHp, barW };
   }
 
   _updateHpBar(bar, unit) {
@@ -176,6 +179,22 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: bar.fill, displayWidth: bar.barW * pct, duration: 300, ease: 'Power2' });
     bar.fill.setFillStyle(this._hpColor(pct));
     bar.txt.setText(`${unit.hp} / ${unit.maxHp}`);
+  }
+
+  // Called when a new enemy unit steps onto the field (after the previous one dies)
+  _updateEnemyPanel() {
+    if (!this.enemyUnit) return;
+    const stats = UNIT_STATS[this.enemyUnit.type] || {};
+    // Update HP bar name label
+    if (this.enemyHpBar?.labelTxt) {
+      this.enemyHpBar.labelTxt.setText(stats.label || this.enemyUnit.type);
+    }
+    // Update type badge
+    if (this.enemyTypeBadgeTxt) {
+      this.enemyTypeBadgeTxt.setText(UNIT_MOVE_TYPE[this.enemyUnit.type] || '?');
+    }
+    // Update enemy stats reference (used by _buildMoveButtons for effectiveness)
+    this.enemyStats = stats;
   }
 
   _hpColor(pct) {
@@ -252,9 +271,10 @@ export class BattleScene extends Phaser.Scene {
 
   _typeBadge(x, y, type, color) {
     this.add.rectangle(x, y, 72, 18, color, 0.8).setDepth(6);
-    this.add.text(x, y, type, {
+    const txt = this.add.text(x, y, type, {
       fontFamily: 'monospace', fontSize: '10px', color: '#ffffff',
     }).setOrigin(0.5).setDepth(7);
+    return txt; // caller may store this to update the label later
   }
 
   // ─── Move buttons ─────────────────────────────────────────────────────────
@@ -322,10 +342,24 @@ export class BattleScene extends Phaser.Scene {
     this.actionLocked = true;
     this._lockButtons(true);
     socketManager.sendAction({ type: 'BATTLE_MOVE', moveIndex });
+    // Safety: force-unlock after 8 s in case the server response is lost
+    if (this._moveTimeout) this._moveTimeout.remove(false);
+    this._moveTimeout = this.time.delayedCall(8000, () => {
+      if (this.actionLocked) {
+        this.actionLocked = false;
+        this._lockButtons(false);
+      }
+    });
   }
 
   _onBattleUpdate(data) {
     const { battle } = data;
+
+    // Cancel the safety unlock timer — server responded
+    if (this._moveTimeout) { this._moveTimeout.remove(false); this._moveTimeout = null; }
+
+    // Mark animation in progress — battle_end will be deferred until we finish
+    this._animating = true;
 
     // Snapshot BEFORE refresh to detect deaths and compute damage amounts
     const prevEnemyUnit  = this.enemyUnit  ? { ...this.enemyUnit  } : null;
@@ -338,8 +372,15 @@ export class BattleScene extends Phaser.Scene {
     this._refreshFromBattle(battle);
     this.logText.setText(this._fmtLog(battle.log));
 
-    const enemyDied    = !!prevEnemyId  && this.enemyUnit?.id  !== prevEnemyId;
-    const playerDied   = !!prevPlayerId && this.playerUnit?.id !== prevPlayerId;
+    // enemyDied: either the unit ID changed (next enemy up) OR same unit reached 0 HP
+    const enemyDied    = !!prevEnemyId  && (
+      this.enemyUnit?.id !== prevEnemyId ||
+      (this.enemyUnit?.id === prevEnemyId && this.enemyUnit.hp <= 0 && prevEnemyHp > 0)
+    );
+    const playerDied   = !!prevPlayerId && (
+      this.playerUnit?.id !== prevPlayerId ||
+      (this.playerUnit?.id === prevPlayerId && this.playerUnit.hp <= 0 && prevPlayerHp > 0)
+    );
     const enemyWasHit  = !enemyDied  && this.enemyUnit  && this.enemyUnit.hp  < prevEnemyHp;
     const playerWasHit = !playerDied && this.playerUnit && this.playerUnit.hp < prevPlayerHp;
     // Actual damage dealt (for floating number)
@@ -373,6 +414,7 @@ export class BattleScene extends Phaser.Scene {
               this._rebuildEnemyGhosts();
               this._resetSprite(this.enemySprite, this._enemySpriteX, this._enemySpriteY);
               this.enemySprite.setTexture(`battle_${this.enemyUnit.type}_enemy`);
+              this._updateEnemyPanel(); // update name + type badge for incoming enemy
               this._animEnter(this.enemySprite, 'right', () => {
                 this._updateHpBar(this.enemyHpBar, this.enemyUnit);
                 this._finishUpdate(200);
@@ -421,6 +463,9 @@ export class BattleScene extends Phaser.Scene {
               if (this.playerUnit) {
                 this._resetSprite(this.playerSprite, this._playerSpriteX, this._playerSpriteY);
                 this.playerSprite.setTexture(`battle_${this.playerUnit.type}`);
+                if (this.playerHpBar?.labelTxt) {
+                  this.playerHpBar.labelTxt.setText((UNIT_STATS[this.playerUnit.type] || {}).label || this.playerUnit.type);
+                }
                 this._animEnter(this.playerSprite, 'left', () => {
                   this._updateHpBar(this.playerHpBar, this.playerUnit);
                   this._finishUpdate(80);
@@ -492,6 +537,14 @@ export class BattleScene extends Phaser.Scene {
       this._rebuildEnemyGhosts();
       const { width: W, height: H } = this.cameras.main;
       this._buildMoveButtons(W, H); // refresh moves in case player unit changed
+      // Clear animating flag BEFORE checking for deferred battle_end
+      this._animating = false;
+      if (this._pendingBattleEnd) {
+        const pending = this._pendingBattleEnd;
+        this._pendingBattleEnd = null;
+        this._onBattleEnd(pending);
+        return;
+      }
       this.time.delayedCall(100, () => {
         this.actionLocked = false;
         this._lockButtons(false);
@@ -500,6 +553,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   _onBattleEnd(data) {
+    // If a battle_update animation is still playing, defer until it finishes
+    if (this._animating) {
+      this._pendingBattleEnd = data;
+      return;
+    }
     const { winner, log } = data;
     this.logText.setText(this._fmtLog(log));
     this._lockButtons(true);
@@ -573,7 +631,9 @@ export class BattleScene extends Phaser.Scene {
     // Destroy all existing game objects and animations
     this.children.list.slice().forEach(o => o.destroy());
     this.tweens.killAll();
-    this.actionLocked = false;
+    this.actionLocked    = false;
+    this._animating      = false;
+    this._pendingBattleEnd = null;
 
     // Reload with next-room battle data
     this._refreshFromBattle(data.battle);
