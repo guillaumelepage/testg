@@ -327,11 +327,13 @@ export class BattleScene extends Phaser.Scene {
   _onBattleUpdate(data) {
     const { battle } = data;
 
-    // Sauvegarder l'état avant refresh pour détecter morts et changements
-    const prevPlayerId = this.playerUnit?.id;
-    const prevEnemyId  = this.enemyUnit?.id;
-    const prevPlayerHp = this.playerUnit?.hp ?? 0;
-    const prevEnemyHp  = this.enemyUnit?.hp  ?? 0;
+    // Snapshot BEFORE refresh to detect deaths and compute damage amounts
+    const prevEnemyUnit  = this.enemyUnit  ? { ...this.enemyUnit  } : null;
+    const prevPlayerUnit = this.playerUnit ? { ...this.playerUnit } : null;
+    const prevEnemyHp    = this.enemyUnit?.hp  ?? 0;
+    const prevPlayerHp   = this.playerUnit?.hp ?? 0;
+    const prevEnemyId    = this.enemyUnit?.id;
+    const prevPlayerId   = this.playerUnit?.id;
 
     this._refreshFromBattle(battle);
     this.logText.setText(this._fmtLog(battle.log));
@@ -340,65 +342,96 @@ export class BattleScene extends Phaser.Scene {
     const playerDied   = !!prevPlayerId && this.playerUnit?.id !== prevPlayerId;
     const enemyWasHit  = !enemyDied  && this.enemyUnit  && this.enemyUnit.hp  < prevEnemyHp;
     const playerWasHit = !playerDied && this.playerUnit && this.playerUnit.hp < prevPlayerHp;
+    // Actual damage dealt (for floating number)
+    const enemyDmg  = enemyDied  ? prevEnemyHp  : (enemyWasHit  ? prevEnemyHp  - this.enemyUnit.hp  : 0);
+    const playerDmg = playerDied ? prevPlayerHp : (playerWasHit ? prevPlayerHp - this.playerUnit.hp : 0);
 
-    // ── Phase 1 : attaque du joueur (lunge forward) ──────────────────────────
+    // ── Phase 1 : joueur attaque ─────────────────────────────────────────────
     this._animAttack(this.playerSprite, +52, () => {
+
       if (enemyWasHit) {
-        // Recul + flash → barre HP mise à jour APRÈS le recul
+        // Ennemi recule vers la droite (s'éloigne du joueur)
         this.tweens.add({
-          targets: this.enemySprite, x: `-=${28}`, duration: 80, yoyo: true, ease: 'Power2',
-          onComplete: () => this._updateHpBar(this.enemyHpBar, this.enemyUnit),
+          targets: this.enemySprite, x: `+=${28}`, duration: 80, yoyo: true, ease: 'Power2',
+          onStart: () => {
+            this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+            if (enemyDmg) this._showDamageNumber(this.enemySprite.x + 20, this.enemySprite.y - 44, enemyDmg, '#ff6644');
+          },
         });
-        this.tweens.add({ targets: this.enemySprite, alpha: 0.4, duration: 60, yoyo: true, repeat: 1 });
-        this._phase2(playerWasHit, playerDied, 2000);
+        this.tweens.add({ targets: this.enemySprite, alpha: 0.35, duration: 60, yoyo: true, repeat: 1 });
+        // Riposte ennemie après 2 s (enemy survived, so it retaliates)
+        this._phase2(playerWasHit, playerDied, playerDmg, prevPlayerUnit, 2000);
 
       } else if (enemyDied) {
-        // Animation de mort d'abord — barre HP mise à jour pour le suivant après l'entrée
-        this._animDie(this.enemySprite, () => {
-          this._rebuildEnemyGhosts();
-          this._resetSprite(this.enemySprite, this._enemySpriteX, this._enemySpriteY);
-          this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
-          this._updateHpBar(this.enemyHpBar, this.enemyUnit);
-          this._animEnter(this.enemySprite, 'right', () => this._phase2(playerWasHit, playerDied, 2000));
+        // HP descend à 0 + nombre de dégâts, puis mort après 1 s
+        this._updateHpBar(this.enemyHpBar, { hp: 0, maxHp: prevEnemyUnit.maxHp });
+        if (enemyDmg) this._showDamageNumber(this.enemySprite.x + 20, this.enemySprite.y - 44, enemyDmg, '#ff2200');
+        this.time.delayedCall(1000, () => {
+          this._animDie(this.enemySprite, () => {
+            if (this.enemyUnit) {
+              // Prochain ennemi entre en scène
+              this._rebuildEnemyGhosts();
+              this._resetSprite(this.enemySprite, this._enemySpriteX, this._enemySpriteY);
+              this.enemySprite.setTexture(`battle_${this.enemyUnit.type}_enemy`);
+              this._animEnter(this.enemySprite, 'right', () => {
+                this._updateHpBar(this.enemyHpBar, this.enemyUnit);
+                this._finishUpdate(200);
+              });
+            } else {
+              // Plus d'ennemis — battle_end géré séparément
+              this._finishUpdate(200);
+            }
+          });
         });
 
       } else {
-        // Pas de dégât visuel (résistance totale, etc.)
-        this.enemySprite.setTexture(`battle_${this.enemyUnit?.type}_enemy`);
-        this._phase2(playerWasHit, playerDied, 2000);
+        // Aucun dégât visible
+        this._phase2(playerWasHit, playerDied, playerDmg, prevPlayerUnit, 2000);
       }
     });
   }
 
-  // ── Phase 2 : riposte ennemie (après 2 s) ────────────────────────────────
-  _phase2(playerWasHit, playerDied, delay) {
+  // ── Phase 2 : riposte ennemie (après délai) ──────────────────────────────
+  _phase2(playerWasHit, playerDied, playerDmg, prevPlayerUnit, delay) {
     this.time.delayedCall(delay, () => {
-      if (playerWasHit || playerDied) {
-        // Ennemi se précipite vers le joueur
-        this._animAttack(this.enemySprite, -52, () => {
-          if (playerWasHit) {
-            // Recul + flash → barre HP mise à jour APRÈS le recul
-            this.tweens.add({
-              targets: this.playerSprite, x: `+=${28}`, duration: 80, yoyo: true, ease: 'Power2',
-              onComplete: () => this._updateHpBar(this.playerHpBar, this.playerUnit),
-            });
-            this.tweens.add({ targets: this.playerSprite, alpha: 0.3, duration: 60, yoyo: true, repeat: 1 });
-            this._finishUpdate(380);
-
-          } else if (playerDied) {
-            // Mort du joueur → barre HP mise à jour pour le suivant après l'entrée
-            this._animDie(this.playerSprite, () => {
-              this._resetSprite(this.playerSprite, this._playerSpriteX, this._playerSpriteY);
-              this.playerSprite.setTexture(`battle_${this.playerUnit?.type}`);
-              this._updateHpBar(this.playerHpBar, this.playerUnit);
-              this._animEnter(this.playerSprite, 'left', () => this._finishUpdate(80));
-            });
-          }
-        });
-      } else {
-        // Pas de riposte (ennemi neutralisé en phase 1)
+      if (!playerWasHit && !playerDied) {
         this._finishUpdate(200);
+        return;
       }
+      // Ennemi se précipite vers le joueur
+      this._animAttack(this.enemySprite, -52, () => {
+        if (playerWasHit) {
+          // Joueur recule vers la gauche (s'éloigne de l'ennemi)
+          this.tweens.add({
+            targets: this.playerSprite, x: `-=${28}`, duration: 80, yoyo: true, ease: 'Power2',
+            onStart: () => {
+              this._updateHpBar(this.playerHpBar, this.playerUnit);
+              if (playerDmg) this._showDamageNumber(this.playerSprite.x - 20, this.playerSprite.y - 44, playerDmg, '#ff9900');
+            },
+          });
+          this.tweens.add({ targets: this.playerSprite, alpha: 0.3, duration: 60, yoyo: true, repeat: 1 });
+          this._finishUpdate(380);
+
+        } else if (playerDied) {
+          // HP descend à 0 + nombre de dégâts, puis mort après 1 s
+          this._updateHpBar(this.playerHpBar, { hp: 0, maxHp: prevPlayerUnit?.maxHp ?? this.playerUnit?.maxHp });
+          if (playerDmg) this._showDamageNumber(this.playerSprite.x - 20, this.playerSprite.y - 44, playerDmg, '#ff2200');
+          this.time.delayedCall(1000, () => {
+            this._animDie(this.playerSprite, () => {
+              if (this.playerUnit) {
+                this._resetSprite(this.playerSprite, this._playerSpriteX, this._playerSpriteY);
+                this.playerSprite.setTexture(`battle_${this.playerUnit.type}`);
+                this._animEnter(this.playerSprite, 'left', () => {
+                  this._updateHpBar(this.playerHpBar, this.playerUnit);
+                  this._finishUpdate(80);
+                });
+              } else {
+                this._finishUpdate(80);
+              }
+            });
+          });
+        }
+      });
     });
   }
 
@@ -440,10 +473,25 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
+  // Floating damage number that rises and fades above (x, y)
+  _showDamageNumber(x, y, amount, color = '#ff4444') {
+    const txt = this.add.text(x, y, `-${amount}`, {
+      fontFamily: 'Georgia, serif', fontSize: '24px', color,
+      stroke: '#000000', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(20);
+    this.tweens.add({
+      targets: txt, y: y - 70, alpha: 0,
+      duration: 1100, ease: 'Power2',
+      onComplete: () => txt.destroy(),
+    });
+  }
+
   _finishUpdate(delay) {
     this.time.delayedCall(delay, () => {
       this._rebuildRosters();
       this._rebuildEnemyGhosts();
+      const { width: W, height: H } = this.cameras.main;
+      this._buildMoveButtons(W, H); // refresh moves in case player unit changed
       this.time.delayedCall(100, () => {
         this.actionLocked = false;
         this._lockButtons(false);

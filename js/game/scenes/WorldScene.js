@@ -38,6 +38,7 @@ export class WorldScene extends Phaser.Scene {
     this.players = data.snapshot.players;
     this.mapData = data.snapshot.map;
     this.selectedUnit = null;
+    this.selectedUnits = [];
     this.selectedBuilding = null;
     this.buildMode = null;
     this.unitObjects = new Map();
@@ -178,6 +179,8 @@ export class WorldScene extends Phaser.Scene {
 
     // ── Selection ring ────────────────────────────────────────────────────────
     this.selectionRing = this.add.image(0, 0, 'selection_ring').setVisible(false).setDepth(5);
+    this.groupRings    = [];   // pool of extra selection rings for grouped units
+    this.selectBox     = this.add.graphics().setDepth(60); // drag-select rectangle
 
     // ── Gathering badges ──────────────────────────────────────────────────────
     this.gatherBadges = new Map();
@@ -294,14 +297,38 @@ export class WorldScene extends Phaser.Scene {
 
     // Single pointer: start potential drag
     const cam = this.cameras.main;
-    this._drag = { x: ptr.x, y: ptr.y, camX: cam.scrollX, camY: cam.scrollY, moved: false };
+    const wp0 = cam.getWorldPoint(ptr.x, ptr.y);
+    const isShift = !!(ptr.event?.shiftKey);
+    this._drag = { x: ptr.x, y: ptr.y, camX: cam.scrollX, camY: cam.scrollY, moved: false,
+                   shift: isShift, worldX: wp0.x, worldY: wp0.y };
   }
 
   _onPointerUp(ptr) {
-    // If this was a clean tap (not a drag), fire the click handler
-    if (this._drag && !this._drag.moved) {
+    if (this._drag?.moved && this._drag.shift) {
+      // Shift+drag released → apply box selection
+      const cam = this.cameras.main;
+      const wp = cam.getWorldPoint(ptr.x, ptr.y);
+      this.selectBox.clear();
+      const tx0 = Math.min(this._drag.worldX, wp.x) / TILE_SIZE;
+      const ty0 = Math.min(this._drag.worldY, wp.y) / TILE_SIZE;
+      const tx1 = Math.max(this._drag.worldX, wp.x) / TILE_SIZE;
+      const ty1 = Math.max(this._drag.worldY, wp.y) / TILE_SIZE;
+      const inBox = this.shared.units.filter(u =>
+        u.owner === 'player' && u.x >= tx0 && u.x <= tx1 && u.y >= ty0 && u.y <= ty1
+      );
+      if (inBox.length > 0) {
+        this._deselectAll();
+        this.selectedUnits = [...inBox];
+        this.selectedUnit  = inBox[0];
+        this._updateAllRings();
+        this.scene.get('UI')?.showUnitPanel(this.selectedUnit);
+        if (inBox.length > 1) this.scene.get('UI')?.showMessage(`${inBox.length} unités groupées`, 0x44aaff);
+      }
+    } else if (this._drag && !this._drag.moved) {
+      // Clean tap → normal click
       this._onWorldClick(ptr);
     }
+    this.selectBox?.clear();
     this._drag  = null;
     this._pinch = null;
   }
@@ -327,12 +354,27 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
 
-    // ── Single-finger / mouse drag → pan camera ───────────────────────────────
+    // ── Single-finger / mouse drag ────────────────────────────────────────────
     if (this._drag && ptr.isDown && !this.buildMode) {
       const dx = ptr.x - this._drag.x;
       const dy = ptr.y - this._drag.y;
       if (!this._drag.moved && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
         this._drag.moved = true;
+      }
+      // Shift+drag → box selection rectangle (no camera pan)
+      if (this._drag.moved && this._drag.shift) {
+        const cam = this.cameras.main;
+        const wp = cam.getWorldPoint(ptr.x, ptr.y);
+        this.selectBox.clear();
+        this.selectBox.lineStyle(2, 0x44aaff, 0.9);
+        this.selectBox.fillStyle(0x44aaff, 0.08);
+        const bx = Math.min(this._drag.worldX, wp.x);
+        const by = Math.min(this._drag.worldY, wp.y);
+        const bw = Math.abs(wp.x - this._drag.worldX);
+        const bh = Math.abs(wp.y - this._drag.worldY);
+        this.selectBox.fillRect(bx, by, bw, bh);
+        this.selectBox.strokeRect(bx, by, bw, bh);
+        return;
       }
       if (this._drag.moved) {
         const cam = this.cameras.main;
@@ -421,6 +463,7 @@ export class WorldScene extends Phaser.Scene {
     const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
     const tx = Math.floor(wp.x / TILE_SIZE);
     const ty = Math.floor(wp.y / TILE_SIZE);
+    const isShift = !!(ptr.event?.shiftKey);
 
     if (this.buildMode) {
       if (!this._isInTerritory(tx, ty)) {
@@ -429,7 +472,6 @@ export class WorldScene extends Phaser.Scene {
       }
       socketManager.sendAction({ type: 'PLACE_BUILDING', buildingType: this.buildMode, tx, ty });
       if (this.buildMode === 'wall') {
-        // Stay in wall mode — allow painting more walls
         this._lastWallTile = `${tx},${ty}`;
       } else {
         this._cancelBuildMode();
@@ -437,10 +479,17 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
 
-    // Village tower at tile? → siege (unit walks adjacent and attacks each tick)
+    // Village tower at tile? → siege with selected unit (or whole group moves to tower vicinity)
     const tower = (this.shared.villages || []).find(v => !v.capturedBy && v.x === tx && v.y === ty);
     if (tower && this.selectedUnit) {
+      // Primary unit sieges; support units position nearby
       socketManager.sendAction({ type: 'MOVE_UNIT', unitId: this.selectedUnit.id, tx, ty });
+      const support = this.selectedUnits.filter(u => u.id !== this.selectedUnit.id);
+      const suppOffsets = [[2,0],[-2,0],[0,2],[0,-2],[2,1],[-2,1],[1,2],[-1,2]];
+      support.forEach((u, i) => {
+        const o = suppOffsets[i % suppOffsets.length];
+        socketManager.sendAction({ type: 'MOVE_UNIT', unitId: u.id, tx: tx + o[0], ty: ty + o[1] });
+      });
       this.scene.get('UI')?.showMessage('⚔ Siège de la tour ennemie !', 0xff8800);
       this._deselectAll();
       return;
@@ -452,7 +501,6 @@ export class WorldScene extends Phaser.Scene {
       const hero = this.selectedUnit;
       const dist = Math.abs(tx - hero.x) + Math.abs(ty - hero.y);
       const walkMs = this._walkMs(hero, dist);
-      // Walk to NPC first, then interact
       if (dist > 0) socketManager.sendAction({ type: 'MOVE_UNIT', unitId: hero.id, tx, ty });
       this._animWalkTo(hero.id, tx, ty, walkMs);
       this.time.delayedCall(walkMs, () => socketManager.sendAction({ type: 'INTERACT_NPC', npcId: npc.id }));
@@ -464,20 +512,28 @@ export class WorldScene extends Phaser.Scene {
     const unit = this.shared.units.find(u => u.x === tx && u.y === ty);
     if (unit) {
       if (this.selectedUnit && (unit.owner === 'enemy' || unit.owner === 'neutral')) {
-        // Attack — move selected unit toward enemy/mob, delay battle until unit arrives
+        // Attack — primary unit attacks; group moves adjacent to assist
         const attacker = this.selectedUnit;
         const dist = Math.abs(tx - attacker.x) + Math.abs(ty - attacker.y);
         const walkMs = this._walkMs(attacker, dist);
         socketManager.sendAction({ type: 'MOVE_UNIT', unitId: attacker.id, tx, ty });
         this._pendingBattleWalk = { unitId: attacker.id, tx, ty, walkMs, sentAt: Date.now() };
+        // Support units move adjacent to the target
+        const support = this.selectedUnits.filter(u => u.id !== attacker.id);
+        const suppOffsets = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+        support.forEach((u, i) => {
+          const o = suppOffsets[i % suppOffsets.length];
+          socketManager.sendAction({ type: 'MOVE_UNIT', unitId: u.id, tx: tx + o[0], ty: ty + o[1] });
+        });
         this._deselectAll();
       } else if (unit.owner === 'player') {
-        this._selectUnit(unit);
+        // Shift+click: add/remove from group; plain click: single select
+        this._selectUnit(unit, isShift);
       }
       return;
     }
 
-    // Resource + paysan selected → gather
+    // Resource + paysan selected → gather (only primary unit gathers)
     const resource = this.shared.resourceNodes.find(r => r.x === tx && r.y === ty && r.amount > 0);
     if (resource && this.selectedUnit?.type === 'paysan') {
       socketManager.sendAction({ type: 'GATHER', unitId: this.selectedUnit.id, resourceId: resource.id });
@@ -486,16 +542,28 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
 
-    // Building? (check visual footprint, not just origin tile)
+    // Building?
     const building = this._buildingAt(tx, ty);
     if (building) {
       this._selectBuilding(building);
       return;
     }
 
-    // Move selected unit
+    // Move selected unit(s) — group uses formation offsets
     if (this.selectedUnit) {
-      socketManager.sendAction({ type: 'MOVE_UNIT', unitId: this.selectedUnit.id, tx, ty });
+      if (this.selectedUnits.length > 1) {
+        // Formation: center tile first, then spiral outward
+        const FORMATION = [
+          [0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1],
+          [2,0],[-2,0],[0,2],[0,-2],[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1],
+        ];
+        this.selectedUnits.forEach((u, i) => {
+          const o = FORMATION[i] || FORMATION[FORMATION.length - 1];
+          socketManager.sendAction({ type: 'MOVE_UNIT', unitId: u.id, tx: tx + o[0], ty: ty + o[1] });
+        });
+      } else {
+        socketManager.sendAction({ type: 'MOVE_UNIT', unitId: this.selectedUnit.id, tx, ty });
+      }
       this._deselectAll();
       return;
     }
@@ -518,12 +586,25 @@ export class WorldScene extends Phaser.Scene {
 
   // ─── Selection ────────────────────────────────────────────────────────────
 
-  _selectUnit(unit) {
-    this._deselectAll();
-    this.selectedUnit = unit;
-    const obj = this.unitObjects.get(unit.id);
-    if (obj) this.selectionRing.setPosition(obj.x, obj.y).setVisible(true).setDepth(4);
-    this.scene.get('UI')?.showUnitPanel(unit);
+  _selectUnit(unit, additive = false) {
+    if (additive) {
+      const idx = this.selectedUnits.findIndex(u => u.id === unit.id);
+      if (idx >= 0) {
+        this.selectedUnits.splice(idx, 1);
+      } else {
+        this.selectedUnits.push(unit);
+      }
+      this.selectedUnit = this.selectedUnits[this.selectedUnits.length - 1] || null;
+    } else {
+      this._deselectAll();
+      this.selectedUnits = [unit];
+      this.selectedUnit  = unit;
+    }
+    this._updateAllRings();
+    if (this.selectedUnits.length > 1) {
+      this.scene.get('UI')?.showMessage(`${this.selectedUnits.length} unités groupées`, 0x44aaff);
+    }
+    if (this.selectedUnit) this.scene.get('UI')?.showUnitPanel(this.selectedUnit);
 
     // If paysan: highlight all available resources
     if (unit.type === 'paysan') {
@@ -549,11 +630,43 @@ export class WorldScene extends Phaser.Scene {
   }
 
   _deselectAll() {
-    this.selectedUnit = null;
+    this.selectedUnit     = null;
+    this.selectedUnits    = [];
     this.selectedBuilding = null;
     this.selectionRing.setVisible(false);
+    this._hideGroupRings();
     this._showResourceHighlights(false);
     this.scene.get('UI')?.hidePanel();
+  }
+
+  // ── Group ring helpers ──────────────────────────────────────────────────────
+
+  _getGroupRing(i) {
+    while (this.groupRings.length <= i) {
+      const r = this.add.image(0, 0, 'selection_ring')
+        .setVisible(false).setDepth(4.8).setTint(0x44aaff).setAlpha(0.75);
+      this.groupRings.push(r);
+    }
+    return this.groupRings[i];
+  }
+
+  _hideGroupRings() {
+    for (const r of this.groupRings) r.setVisible(false);
+  }
+
+  _updateAllRings() {
+    this._hideGroupRings();
+    let gi = 0;
+    for (const u of this.selectedUnits) {
+      const obj = this.unitObjects.get(u.id);
+      if (!obj) continue;
+      if (u.id === this.selectedUnit?.id) {
+        this.selectionRing.setPosition(obj.x, obj.y).setVisible(true);
+      } else {
+        this._getGroupRing(gi++).setPosition(obj.x, obj.y).setVisible(true);
+      }
+    }
+    if (!this.selectedUnit) this.selectionRing.setVisible(false);
   }
 
   // ─── Resource highlights ──────────────────────────────────────────────────
@@ -1092,10 +1205,19 @@ export class WorldScene extends Phaser.Scene {
   }
 
   _updateSelectionRing() {
-    if (!this.selectedUnit) return;
-    const obj = this.unitObjects.get(this.selectedUnit.id);
-    // Follow the container's live tween position, not snapped tile coords
+    if (!this.selectedUnit && !this.selectedUnits.length) return;
+    // Primary ring follows selectedUnit
+    const obj = this.unitObjects.get(this.selectedUnit?.id);
     if (obj) this.selectionRing.setPosition(obj.x, obj.y).setVisible(true);
+    // Group rings follow their respective units
+    let gi = 0;
+    for (const u of this.selectedUnits) {
+      if (u.id === this.selectedUnit?.id) continue;
+      const uObj = this.unitObjects.get(u.id);
+      const r = this.groupRings[gi];
+      if (r && uObj) r.setPosition(uObj.x, uObj.y);
+      gi++;
+    }
   }
 
   // ─── Gathering badges (small ⛏ icon over gathering workers) ───────────────
@@ -1204,9 +1326,14 @@ export class WorldScene extends Phaser.Scene {
       }
     }
 
-    // Deselect dead unit
-    if (this.selectedUnit && !shared.units.find(u => u.id === this.selectedUnit.id)) {
-      this._deselectAll();
+    // Remove dead units from group; deselect if primary is dead
+    if (this.selectedUnits.length > 0) {
+      this.selectedUnits = this.selectedUnits.filter(u => shared.units.find(su => su.id === u.id));
+      if (this.selectedUnit && !shared.units.find(u => u.id === this.selectedUnit.id)) {
+        this.selectedUnit = this.selectedUnits[0] || null;
+        if (!this.selectedUnit) this._deselectAll();
+        else this._updateAllRings();
+      }
     }
 
     // Refresh resource highlights if paysan still selected
